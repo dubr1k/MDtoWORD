@@ -42,8 +42,8 @@
 ### Установка
 ```bash
 # 1. Клонируйте репозиторий
-git clone https://github.com/yourusername/MDtoDOCX.git
-cd MDtoDOCX
+git clone https://github.com/dubr1k/MDtoWORD.git
+cd MDtoWORD
 
 # 2. Установите зависимости
 pip install -r requirements.txt
@@ -101,15 +101,15 @@ pip install python-docx
 ### Примеры использования
 
 #### Конвертация одного файла
-```bash
-# Выберите: report.md
-# Результат: report.docx
+```
+Выберите: report.md
+Результат: report.docx
 ```
 
 #### Пакетная конвертация
-```bash
-# Выберите: file1.md, file2.md, file3.md
-# Результат: file1.docx, file2.docx, file3.docx
+```
+Выберите: file1.md, file2.md, file3.md
+Результат: file1.docx, file2.docx, file3.docx
 ```
 
 ---
@@ -151,11 +151,10 @@ pip install python-docx
 ```
 
 ### Блоки кода
-```markdown
-```
+```python
 def hello_world():
     print("Hello, World!")
-```
+    return "Успех"
 ```
 
 ---
@@ -163,7 +162,7 @@ def hello_world():
 ## 🏗️ Структура проекта
 
 ```
-MDtoDOCX/
+MDtoWORD/
 ├── 📄 md_to_word_converter.py    # Основной скрипт с GUI
 ├── 📋 requirements.txt           # Зависимости проекта
 ├── 📖 README.md                  # Документация (этот файл)
