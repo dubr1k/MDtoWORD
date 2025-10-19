@@ -148,3 +148,7 @@ Thumbs.db
 *.docx
 test_output/
 temp/
+
+# Local development files (not for GitHub)
+запуск_конвертера.bat
+test_example.md
