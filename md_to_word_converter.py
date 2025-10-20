@@ -155,6 +155,8 @@ class MarkdownToWordConverter:
                     cell.text = ''
                     paragraph = cell.paragraphs[0]
                     self.add_formatted_text(paragraph, cell_text)
+                    # Устанавливаем выравнивание по ширине для текста в ячейках
+                    paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
                     
                     # Форматирование для заголовка таблицы (первая строка)
                     if i == 0:
@@ -268,6 +270,8 @@ class MarkdownToWordConverter:
                 else:
                     paragraph = self.doc.add_paragraph()
                     self.add_formatted_text(paragraph, line)
+                    # Устанавливаем выравнивание по ширине для обычного текста
+                    paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
                     i += 1
             
             # Сохраняем документ
