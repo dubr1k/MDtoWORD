@@ -391,7 +391,7 @@ class ConverterGUI:
                 "logo_failed": "Failed to load logo: {error}",
             }
         }
-        self.current_language = "en"  # Язык по умолчанию
+        self.current_language = "ru"  # Язык по умолчанию
 
         self.create_widgets()
 
@@ -551,7 +551,7 @@ class ConverterGUI:
         # Кнопка переключения языка
         self.language_button = Button(
             self.root,
-            text="RU",
+            text="EN",
             command=self.toggle_language,
             bg="#9E9E9E",
             fg="white",
