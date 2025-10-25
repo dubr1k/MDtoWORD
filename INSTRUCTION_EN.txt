@@ -1,0 +1,89 @@
+═══════════════════════════════════════════════════════════
+  MARKDOWN TO WORD CONVERTER - QUICK GUIDE
+═══════════════════════════════════════════════════════════
+
+🚀 QUICK START (for Windows)
+────────────────────────────────────────────
+1. Double-click the file "launch_converter.bat"
+2. The program will automatically install required libraries (if needed)
+3. The converter window will open
+
+📋 MANUAL LAUNCH
+────────────────────────────────────────────
+1. Install dependencies (once):
+   pip install python-docx
+
+2. Run the script:
+   python md_to_word_converter.py
+
+🎯 HOW TO USE
+────────────────────────────────────────────
+1. In the program window, click "Select .md files"
+2. Choose one or more .md files (multiple selection supported)
+3. Click "Select folder" to choose where to save results
+4. Click "Convert"
+5. Done! The .docx files are saved in the selected folder
+
+✨ SUPPORTED FEATURES
+────────────────────────────────────────────
+✓ All heading levels (# ## ### etc.)
+✓ Bold text (**text**)
+✓ Italic text (*text*)
+✓ Bold italic (***text***)
+✓ Tables with borders and formatting
+✓ Bulleted lists (-, *, +)
+✓ Numbered lists (1. 2. 3.)
+✓ Code blocks (```)
+✓ Horizontal lines (---)
+✓ Nested formatting inside tables
+
+📝 MARKDOWN SYNTAX EXAMPLES
+────────────────────────────────────────────
+
+Headings:
+  # This is Heading 1
+  ## This is Heading 2
+
+Formatting:
+  **bold**
+  *italic*
+  ***bold italic***
+
+Table:
+  | Column 1 | Column 2 |
+  |-----------|-----------|
+  | Cell 1    | Cell 2    |
+
+List:
+  - Item 1
+  - Item 2
+
+  1. First
+  2. Second
+
+🔧 REQUIREMENTS
+────────────────────────────────────────────
+- Python 3.7 or higher
+- python-docx library (installed automatically)
+
+❓ FAQ
+────────────────────────────────────────────
+Q: Can I convert multiple files at once?
+A: Yes! Just select several files at once.
+
+Q: What font is used in Word?
+A: Times New Roman, 12pt, black color.
+
+Q: Is table formatting preserved?
+A: Yes, tables are created with borders and formatting.
+
+Q: Can I remove files from the list?
+A: Yes, select files in the list and click "Delete selected".
+
+📧 TROUBLESHOOTING
+────────────────────────────────────────────
+If the program doesn’t start:
+1. Make sure Python is installed: python --version
+2. Install dependencies: pip install python-docx
+3. Check that .md files exist and are readable
+═══════════════════════════════════════════════════════════

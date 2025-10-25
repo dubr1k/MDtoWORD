@@ -1,3 +1,6 @@
+# RU
+• [🇺🇸 EN](#EN)
+---
 # Конвертер Markdown в Word
 
 Приложение с графическим интерфейсом для конвертации файлов Markdown (.md) в формат Microsoft Word (.docx) с полным сохранением форматирования.
@@ -119,4 +122,141 @@ python md_to_word_converter.py
 ## Автор
 
 Создано для конвертации аналитических отчетов и документации
+---
 
+
+# EN
+• [🇷🇺 RU](#RU)
+---
+Markdown file converter:
+
+```markdown
+# Markdown to Word Converter
+
+A graphical application for converting Markdown (`.md`) files into Microsoft Word (`.docx`) format while fully preserving formatting.
+
+## Features
+
+- **Graphical User Interface**: Built with Tkinter for ease of use  
+- **Batch Processing**: Convert multiple files at once  
+- **Full Formatting Support**:
+  - Headings (H1–H9)
+  - Bold text
+  - Italic text
+  - Bold italic text
+  - Bulleted lists
+  - Numbered lists
+  - Tables with borders
+  - Code blocks
+  - Horizontal rules
+- **Default Styling**: Black text in Times New Roman, 12pt  
+- **Progress Bar**: Real-time conversion progress tracking  
+
+## Installation
+
+1. Ensure you have Python 3.7 or higher installed.  
+2. Install dependencies:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+   Or install directly:
+
+   ```bash
+   pip install python-docx
+   ```
+
+## Usage
+
+1. Run the script:
+
+   ```bash
+   python md_to_word_converter.py
+   ```
+
+2. In the opened window:
+   - Click **"Select .md Files"** and choose one or more Markdown files  
+   - Click **"Select Output Folder"** to specify where to save the results  
+   - Click **"Convert"**
+
+The resulting `.docx` files will be saved in the selected folder with the same base filenames.
+
+## Supported Markdown Syntax
+
+### Headings
+
+```markdown
+# Heading 1
+## Heading 2
+### Heading 3
+```
+
+### Text Formatting
+
+```markdown
+**bold text**  
+*italic text*  
+***bold italic text***  
+`inline code`
+```
+
+### Lists
+
+```markdown
+- Bullet list item
+- Another item
+
+1. Numbered list item
+2. Second item
+```
+
+### Tables
+
+```markdown
+| Header 1    | Header 2    |
+|-------------|-------------|
+| Cell 1      | Cell 2      |
+```
+
+### Code Blocks
+
+```
+multi-line
+code block
+```
+
+### Horizontal Rules
+
+```markdown
+---
+```
+
+## Project Structure
+
+- `md_to_word_converter.py` — Main script with GUI and conversion logic  
+- `requirements.txt` — Project dependencies  
+- `README_MD_TO_WORD.md` — Documentation  
+
+## Notes
+
+- Tables are automatically created with borders  
+- All text uses black color (RGB: 0, 0, 0)  
+- Code is displayed in Courier New font  
+- Nested formatting within tables is supported  
+
+## Requirements
+
+- Python 3.7+  
+- python-docx 1.1.2+  
+- tkinter (included in standard Python distribution)  
+
+## License
+
+Free to use.
+
+## Author
+
+Created for converting analytical reports and documentation.
+```
+---

@@ -334,29 +334,88 @@ class ConverterGUI:
             "Wingdings", "Wingdings 2", "Wingdings 3",
         ]
 
+        # --- Добавление словаря переводов ---
+        self.translations = {
+            "ru": {
+                "title": "Конвертер Markdown в Word",
+                "settings_frame": "Настройки документа",
+                "font_label": "Шрифт:",
+                "width_label": "Ширина текста (пт):",
+                "files_frame": "Выбор файлов Markdown",
+                "select_button": "Выбрать файлы .md",
+                "remove_button": "Удалить выбранные",
+                "output_frame": "Место сохранения",
+                "output_label_default": "Папка не выбрана",
+                "output_button": "Выбрать папку",
+                "status_ready": "Готов к конвертации",
+                "convert_button": "Конвертировать",
+                "warning_no_files": "Выберите файлы для конвертации",
+                "warning_no_dir": "Выберите папку для сохранения",
+                "success_message": "Все файлы успешно конвертированы!\nВсего: {count}\nШрифт: {font}, Размер: {size} pt",
+                "status_converting": "Конвертация: {filename}",
+                "status_finished": "Конвертация завершена",
+                "error_title": "Конвертация завершена с ошибками",
+                "error_message": "Успешно: {success}\nОшибок: {errors}\n\n{details}",
+                "font_changed": "Шрифт изменен на: {font}",
+                "size_changed": "Размер шрифта изменен на: {size} pt",
+                "invalid_size": "Некорректное значение ширины (размера шрифта)",
+                "files_selected": "Выбрано файлов: {count}",
+                "icon_failed": "Не удалось установить иконку: {error}",
+                "logo_failed": "Не удалось загрузить логотип: {error}",
+            },
+            "en": {
+                "title": "Markdown to Word Converter",
+                "settings_frame": "Document Settings",
+                "font_label": "Font:",
+                "width_label": "Text Width (pt):",
+                "files_frame": "Select Markdown Files",
+                "select_button": "Select .md Files",
+                "remove_button": "Remove Selected",
+                "output_frame": "Save Location",
+                "output_label_default": "Folder not selected",
+                "output_button": "Select Folder",
+                "status_ready": "Ready to convert",
+                "convert_button": "Convert",
+                "warning_no_files": "Select files for conversion",
+                "warning_no_dir": "Select a folder to save",
+                "success_message": "All files converted successfully!\nTotal: {count}\nFont: {font}, Size: {size} pt",
+                "status_converting": "Converting: {filename}",
+                "status_finished": "Conversion finished",
+                "error_title": "Conversion completed with errors",
+                "error_message": "Success: {success}\nErrors: {errors}\n\n{details}",
+                "font_changed": "Font changed to: {font}",
+                "size_changed": "Font size changed to: {size} pt",
+                "invalid_size": "Invalid width (font size) value",
+                "files_selected": "Files selected: {count}",
+                "icon_failed": "Failed to set icon: {error}",
+                "logo_failed": "Failed to load logo: {error}",
+            }
+        }
+        self.current_language = "en"  # Язык по умолчанию
+
         self.create_widgets()
 
     def create_widgets(self):
         """Создает виджеты интерфейса"""
         # Заголовок
-        title_label = tk.Label(
+        self.title_label = tk.Label(
             self.root,
-            text="Конвертер Markdown в Word",
+            text=self.translations[self.current_language]["title"],
             font=("Arial", 16, "bold")
         )
-        title_label.pack(pady=10)
+        self.title_label.pack(pady=10)
 
         # Фрейм для настроек шрифта и ширины
-        settings_frame = tk.LabelFrame(self.root, text="Настройки документа", padx=10, pady=10)
-        settings_frame.pack(padx=10, pady=5, fill=tk.X)
+        self.settings_frame = tk.LabelFrame(self.root, text=self.translations[self.current_language]["settings_frame"], padx=10, pady=10)
+        self.settings_frame.pack(padx=10, pady=5, fill=tk.X)
 
         # Настройка шрифта
-        font_label = tk.Label(settings_frame, text="Шрифт:")
-        font_label.grid(row=0, column=0, sticky="w", padx=(0, 5))
+        self.font_label = tk.Label(self.settings_frame, text=self.translations[self.current_language]["font_label"])
+        self.font_label.grid(row=0, column=0, sticky="w", padx=(0, 5))
 
         self.font_var = tk.StringVar(value=self.converter.default_font_name)
         self.font_combobox = ttk.Combobox(
-            settings_frame,
+            self.settings_frame,
             textvariable=self.font_var,
             values=self.fonts,
             state="readonly",
@@ -366,14 +425,14 @@ class ConverterGUI:
         self.font_combobox.bind("<<ComboboxSelected>>", self.on_font_change)
 
         # Настройка ширины текста (через Spinbox)
-        width_label = tk.Label(settings_frame, text="Ширина текста (пт):")
-        width_label.grid(row=0, column=2, sticky="w", padx=(10, 5))
+        self.width_label = tk.Label(self.settings_frame, text=self.translations[self.current_language]["width_label"])
+        self.width_label.grid(row=0, column=2, sticky="w", padx=(10, 5))
 
         self.width_var = tk.IntVar(value=int(self.converter.default_font_size.pt))
         self.width_spinbox = tk.Spinbox(
-            settings_frame,
-            from_=8,  # Минимальный размер шрифта
-            to=72,  # Максимальный размер шрифта
+            self.settings_frame,
+            from_=1,  # Минимальный размер шрифта
+            to=100,  # Максимальный размер шрифта
             textvariable=self.width_var,
             width=5,
             command=self.on_width_change  # Вызывается при изменении значения
@@ -381,13 +440,13 @@ class ConverterGUI:
         self.width_spinbox.grid(row=0, column=3, sticky="w", padx=(0, 10))
 
         # Фрейм для выбора файлов
-        files_frame = tk.LabelFrame(self.root, text="Выбор файлов Markdown", padx=10, pady=10)
-        files_frame.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
+        self.files_frame = tk.LabelFrame(self.root, text=self.translations[self.current_language]["files_frame"], padx=10, pady=10)
+        self.files_frame.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
 
         # Кнопка выбора файлов
-        select_button = Button(
-            files_frame,
-            text="Выбрать файлы .md",
+        self.select_button = Button(
+            self.files_frame,
+            text=self.translations[self.current_language]["select_button"],
             command=self.select_files,
             bg="#4CAF50",
             fg="white",
@@ -395,10 +454,10 @@ class ConverterGUI:
             padx=10,
             pady=5
         )
-        select_button.pack(pady=5)
+        self.select_button.pack(pady=5)
 
         # Список выбранных файлов
-        list_frame = tk.Frame(files_frame)
+        list_frame = tk.Frame(self.files_frame)
         list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
 
         scrollbar = tk.Scrollbar(list_frame)
@@ -414,9 +473,9 @@ class ConverterGUI:
         scrollbar.config(command=self.files_listbox.yview)
 
         # Кнопка удаления выбранных файлов
-        remove_button = Button(
-            files_frame,
-            text="Удалить выбранные",
+        self.remove_button = Button(
+            self.files_frame,
+            text=self.translations[self.current_language]["remove_button"],
             command=self.remove_selected_files,
             bg="#f44336",
             fg="white",
@@ -424,18 +483,18 @@ class ConverterGUI:
             padx=5,
             pady=3
         )
-        remove_button.pack(pady=5)
+        self.remove_button.pack(pady=5)
 
         # Фрейм для выбора папки сохранения
-        output_frame = tk.LabelFrame(self.root, text="Место сохранения", padx=10, pady=10)
-        output_frame.pack(padx=10, pady=5, fill=tk.X)
+        self.output_frame = tk.LabelFrame(self.root, text=self.translations[self.current_language]["output_frame"], padx=10, pady=10)
+        self.output_frame.pack(padx=10, pady=5, fill=tk.X)
 
-        output_inner_frame = tk.Frame(output_frame)
+        output_inner_frame = tk.Frame(self.output_frame)
         output_inner_frame.pack(fill=tk.X)
 
         self.output_label = tk.Label(
             output_inner_frame,
-            text="Папка не выбрана",
+            text=self.translations[self.current_language]["output_label_default"],
             anchor="w",
             bg="gray",
             relief=tk.SUNKEN,
@@ -444,9 +503,9 @@ class ConverterGUI:
         )
         self.output_label.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
 
-        output_button = Button(
+        self.output_button = Button(
             output_inner_frame,
-            text="Выбрать папку",
+            text=self.translations[self.current_language]["output_button"],
             command=self.select_output_directory,
             bg="#2196F3",
             fg="white",
@@ -454,7 +513,7 @@ class ConverterGUI:
             padx=10,
             pady=5
         )
-        output_button.pack(side=tk.RIGHT)
+        self.output_button.pack(side=tk.RIGHT)
 
         # Прогресс бар
         progress_frame = tk.Frame(self.root)
@@ -470,16 +529,16 @@ class ConverterGUI:
 
         self.status_label = tk.Label(
             self.root,
-            text="Готов к конвертации",
+            text=self.translations[self.current_language]["status_ready"],
             font=("Arial", 9),
             fg="gray"
         )
         self.status_label.pack(pady=5)
 
         # Кнопка конвертации
-        convert_button = Button(
+        self.convert_button = Button(
             self.root,
-            text="Конвертировать",
+            text=self.translations[self.current_language]["convert_button"],
             command=self.convert_files,
             bg="#FF9800",
             fg="white",
@@ -487,30 +546,81 @@ class ConverterGUI:
             padx=20,
             pady=10
         )
-        convert_button.pack(pady=10)
+        self.convert_button.pack(pady=10)
+
+        # Кнопка переключения языка
+        self.language_button = Button(
+            self.root,
+            text="RU",
+            command=self.toggle_language,
+            bg="#9E9E9E",
+            fg="white",
+            font=("Arial", 10),
+            padx=10,
+            pady=3
+        )
+        self.language_button.pack(pady=5, side=tk.BOTTOM)
+
+    def toggle_language(self):
+        """Переключает язык интерфейса между русским и английским"""
+        if self.current_language == "ru":
+            self.current_language = "en"
+            self.language_button.config(text="RU")
+        else:
+            self.current_language = "ru"
+            self.language_button.config(text="EN")
+
+        self.update_ui_text()
+
+    def update_ui_text(self):
+        """Обновляет текст всех виджетов в соответствии с текущим языком"""
+        t = self.translations[self.current_language]
+        self.root.title(t["title"])
+        self.title_label.config(text=t["title"])
+        self.settings_frame.config(text=t["settings_frame"])
+        self.font_label.config(text=t["font_label"])
+        self.width_label.config(text=t["width_label"])
+        self.files_frame.config(text=t["files_frame"])
+        self.select_button.config(text=t["select_button"])
+        self.remove_button.config(text=t["remove_button"])
+        self.output_frame.config(text=t["output_frame"])
+        # Если папка не выбрана, обновляем текст на "Folder not selected" / "Папка не выбрана"
+        if self.output_directory == "":
+             self.output_label.config(text=t["output_label_default"])
+        self.output_button.config(text=t["output_button"])
+        # Обновляем текст статуса, если он соответствует одному из стандартных
+        current_status = self.status_label.cget("text")
+        if current_status == self.translations["ru"]["status_ready"] or current_status == self.translations["en"]["status_ready"]:
+            self.status_label.config(text=t["status_ready"])
+        elif current_status == self.translations["ru"]["status_finished"] or current_status == self.translations["en"]["status_finished"]:
+            self.status_label.config(text=t["status_finished"])
+        self.convert_button.config(text=t["convert_button"])
 
     def on_font_change(self, event):
         """Обновляет шрифт конвертера при выборе из Combobox"""
         selected_font = self.font_var.get()
         self.converter.default_font_name = selected_font
-        print(f"Шрифт изменен на: {selected_font}")
+        t = self.translations[self.current_language]
+        print(t["font_changed"].format(font=selected_font))
 
     def on_width_change(self):
         """Обновляет размер шрифта конвертера при изменении Spinbox"""
         try:
             selected_size = self.width_var.get()
             self.converter.default_font_size = Pt(selected_size)
-            print(f"Размер шрифта изменен на: {selected_size} pt")
+            t = self.translations[self.current_language]
+            print(t["size_changed"].format(size=selected_size))
         except tk.TclError:
             # Обработка случая, когда введено некорректное значение
-            print("Некорректное значение ширины (размера шрифта)")
+            t = self.translations[self.current_language]
+            print(t["invalid_size"])
             # Восстанавливаем предыдущее корректное значение
             self.width_var.set(int(self.converter.default_font_size.pt))
 
     def select_files(self):
         """Выбор markdown файлов"""
         files = filedialog.askopenfilenames(
-            title="Выберите файлы Markdown",
+            title=self.translations[self.current_language]["select_button"],
             filetypes=[("Markdown files", "*.md"), ("All files", "*.*")]
         )
 
@@ -519,7 +629,8 @@ class ConverterGUI:
                 self.selected_files.append(file)
                 self.files_listbox.insert(tk.END, os.path.basename(file))
 
-        self.status_label.config(text=f"Выбрано файлов: {len(self.selected_files)}")
+        t = self.translations[self.current_language]
+        self.status_label.config(text=t["files_selected"].format(count=len(self.selected_files)))
 
     def remove_selected_files(self):
         """Удаление выбранных файлов из списка"""
@@ -530,11 +641,12 @@ class ConverterGUI:
             self.files_listbox.delete(index)
             del self.selected_files[index]
 
-        self.status_label.config(text=f"Выбрано файлов: {len(self.selected_files)}")
+        t = self.translations[self.current_language]
+        self.status_label.config(text=t["files_selected"].format(count=len(self.selected_files)))
 
     def select_output_directory(self):
         """Выбор папки для сохранения"""
-        directory = filedialog.askdirectory(title="Выберите папку для сохранения")
+        directory = filedialog.askdirectory(title=self.translations[self.current_language]["output_button"])
 
         if directory:
             self.output_directory = directory
@@ -542,12 +654,13 @@ class ConverterGUI:
 
     def convert_files(self):
         """Конвертация выбранных файлов"""
+        t = self.translations[self.current_language]
         if not self.selected_files:
-            messagebox.showwarning("Предупреждение", "Выберите файлы для конвертации")
+            messagebox.showwarning("Предупреждение", t["warning_no_files"])
             return
 
         if not self.output_directory:
-            messagebox.showwarning("Предупреждение", "Выберите папку для сохранения")
+            messagebox.showwarning("Предупреждение", t["warning_no_dir"])
             return
 
         # Сброс прогресса
@@ -560,7 +673,7 @@ class ConverterGUI:
         for i, input_file in enumerate(self.selected_files):
             # Обновляем статус
             filename = os.path.basename(input_file)
-            self.status_label.config(text=f"Конвертация: {filename}")
+            self.status_label.config(text=t["status_converting"].format(filename=filename))
             self.root.update()
 
             # Формируем имя выходного файла
@@ -583,16 +696,16 @@ class ConverterGUI:
         if errors:
             error_text = "\n".join(errors)
             messagebox.showwarning(
-                "Конвертация завершена с ошибками",
-                f"Успешно: {success_count}\nОшибок: {len(errors)}\n\n{error_text}"
+                t["error_title"],
+                t["error_message"].format(success=success_count, errors=len(errors), details=error_text)
             )
         else:
             messagebox.showinfo(
                 "Успех",
-                f"Все файлы успешно конвертированы!\nВсего: {success_count}\nШрифт: {self.converter.default_font_name}, Размер: {self.converter.default_font_size.pt} pt"
+                t["success_message"].format(count=success_count, font=self.converter.default_font_name, size=self.converter.default_font_size.pt)
             )
 
-        self.status_label.config(text="Конвертация завершена")
+        self.status_label.config(text=t["status_finished"])
 
 
 def main():
