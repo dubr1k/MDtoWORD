@@ -441,7 +441,7 @@ class ConverterGUI:
 
         # Фрейм для выбора файлов
         self.files_frame = tk.LabelFrame(self.root, text=self.translations[self.current_language]["files_frame"], padx=10, pady=10)
-        self.files_frame.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
+        self.files_frame.pack(padx=10, pady=5, fill=tk.BOTH, expand=False)
 
         # Кнопка выбора файлов
         self.select_button = Button(
@@ -467,7 +467,8 @@ class ConverterGUI:
             list_frame,
             yscrollcommand=scrollbar.set,
             font=("Arial", 9),
-            selectmode=tk.EXTENDED
+            selectmode=tk.EXTENDED,
+            height=8
         )
         self.files_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.files_listbox.yview)
@@ -557,9 +558,9 @@ class ConverterGUI:
             fg="white",
             font=("Arial", 10),
             padx=10,
-            pady=3
+            pady=5
         )
-        self.language_button.pack(pady=5, side=tk.BOTTOM)
+        self.language_button.pack(pady=10)
 
     def toggle_language(self):
         """Переключает язык интерфейса между русским и английским"""
