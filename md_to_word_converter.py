@@ -570,7 +570,8 @@ class ConverterGUI:
             list_frame,
             yscrollcommand=scrollbar.set,
             font=("Arial", 9),
-            selectmode=tk.EXTENDED
+            selectmode=tk.EXTENDED,
+            height=8  # Добавляем фиксированную высоту из версии cd1ce06
         )
         self.files_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.files_listbox.yview)
