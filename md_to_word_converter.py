@@ -800,6 +800,18 @@ class ConverterGUI:
              # Обновляем текст кнопки переключения режима на "Mode: MD -> Word"
              self.toggle_button.config(text=t["toggle_button_word_to_md"])
 
+        # Обновляем настройки документа
+        self.settings_frame.config(text=t["settings_frame"])
+        self.font_label.config(text=t["font_label"])
+        self.width_label.config(text=t["width_label"])
+        
+        # Обновляем лейбл на вкладке Текст (нужно найти виджет, так как он не сохранен в self)
+        # Лучше сохраним его в self при создании или найдем через children
+        for child in self.tab_text_frame.winfo_children():
+            if isinstance(child, tk.Label):
+                child.config(text=t["text_input_label"])
+                break
+
         # Обновляем табы
         self.notebook.tab(self.tab_files_frame, text=t["tab_files"])
         self.notebook.tab(self.tab_text_frame, text=t["tab_text"])
