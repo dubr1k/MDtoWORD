@@ -380,7 +380,7 @@ class ConverterGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Конвертер Markdown в Word")
-        self.root.geometry("800x600")
+        self.root.geometry("800x700")
         self.root.resizable(True, True)
         try:
             pil_image = Image.open('ico.png')
