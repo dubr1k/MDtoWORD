@@ -152,3 +152,7 @@ temp/
 # Local development files (not for GitHub)
 запуск_конвертера.bat
 test_example.md
+docs/ИНСТРУКЦИЯ_AUTOMATOR.md
+docs/README_MD_TO_WORD.md
+automator_script.txt
+launch_converter.sh

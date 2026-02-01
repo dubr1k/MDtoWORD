@@ -203,13 +203,9 @@ class MarkdownToWordConverter:
 
         return idx
 
-    def convert_file(self, input_path, output_path):
-        """Конвертирует markdown файл в Word"""
+    def convert_content(self, content, output_path):
+        """Конвертирует строку markdown в Word"""
         try:
-            # Читаем файл
-            with open(input_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-
             # Создаем документ
             self.create_document()
 
@@ -281,6 +277,18 @@ class MarkdownToWordConverter:
             # Сохраняем документ
             self.doc.save(output_path)
             return True, "Успешно конвертировано"
+
+        except Exception as e:
+            return False, f"Ошибка при конвертации: {str(e)}"
+
+    def convert_file(self, input_path, output_path):
+        """Конвертирует markdown файл в Word"""
+        try:
+            # Читаем файл
+            with open(input_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            return self.convert_content(content, output_path)
 
         except Exception as e:
             return False, f"Ошибка при конвертации: {str(e)}"
@@ -432,6 +440,10 @@ class ConverterGUI:
                 "select_button_word": "Выбрать файлы .docx",
                 "remove_button": "Удалить выбранные",
                 "remove_all_button": "Удалить все",
+                "tab_files": "Файлы",
+                "tab_text": "Текст",
+                "text_input_label": "Введите Markdown текст:",
+                "save_as_title": "Сохранить как",
                 "output_frame": "Место сохранения",
                 "output_label_default": "Папка не выбрана",
                 "output_button": "Выбрать папку",
@@ -469,6 +481,10 @@ class ConverterGUI:
                 "select_button_word": "Select .docx Files",
                 "remove_button": "Remove Selected",
                 "remove_all_button": "Remove All",
+                "tab_files": "Files",
+                "tab_text": "Text",
+                "text_input_label": "Enter Markdown Text:",
+                "save_as_title": "Save As",
                 "output_frame": "Save Location",
                 "output_label_default": "Folder not selected",
                 "output_button": "Select Folder",
@@ -541,10 +557,29 @@ class ConverterGUI:
         )
         self.width_spinbox.grid(row=0, column=3, sticky="w", padx=(0, 10))
 
-        # --- ФРЕЙМ ДЛЯ ВЫБОРА ФАЙЛОВ (теперь ниже настроек) ---
-        self.files_frame = tk.LabelFrame(self.root, text=self.translations[self.current_language]["files_frame_md"],
+        # --- ВКЛАДКИ (NOTEBOOK) ---
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
+
+        # Вкладка Файлы
+        self.tab_files_frame = tk.Frame(self.notebook)
+        self.notebook.add(self.tab_files_frame, text=self.translations[self.current_language]["tab_files"])
+
+        # Вкладка Текст
+        self.tab_text_frame = tk.Frame(self.notebook)
+        self.notebook.add(self.tab_text_frame, text=self.translations[self.current_language]["tab_text"])
+
+        # --- КОНТЕНТ ВКЛАДКИ ТЕКСТ ---
+        text_label = tk.Label(self.tab_text_frame, text=self.translations[self.current_language]["text_input_label"])
+        text_label.pack(anchor="w", padx=5, pady=5)
+
+        self.text_input = tk.Text(self.tab_text_frame, wrap=tk.WORD, font=("Arial", 10))
+        self.text_input.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # --- ФРЕЙМ ДЛЯ ВЫБОРА ФАЙЛОВ (теперь внутри вкладки Файлы) ---
+        self.files_frame = tk.LabelFrame(self.tab_files_frame, text=self.translations[self.current_language]["files_frame_md"],
                                          padx=10, pady=10)
-        self.files_frame.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
+        self.files_frame.pack(padx=5, pady=5, fill=tk.BOTH, expand=True)
 
         # Кнопка выбора файлов
         self.select_button = Button(
@@ -724,7 +759,7 @@ class ConverterGUI:
             self.files_frame.config(text=t["files_frame_md"])
             self.select_button.config(text=t["select_button_md"])
             # Показываем настройки
-            self.settings_frame.pack(padx=10, pady=5, fill=tk.X, before=self.files_frame)  # pack с before
+            self.settings_frame.pack(padx=10, pady=5, fill=tk.X, before=self.notebook)  # pack с before
         else:  # word_to_md
             self.root.title(t["title_word_to_md"])
             self.title_label.config(text=t["title_word_to_md"])
@@ -764,6 +799,10 @@ class ConverterGUI:
              self.select_button.config(text=t["select_button_word"])
              # Обновляем текст кнопки переключения режима на "Mode: MD -> Word"
              self.toggle_button.config(text=t["toggle_button_word_to_md"])
+
+        # Обновляем табы
+        self.notebook.tab(self.tab_files_frame, text=t["tab_files"])
+        self.notebook.tab(self.tab_text_frame, text=t["tab_text"])
 
         # Обновляем текст кнопки смены языка (в зависимости от текущего языка)
         if self.current_language == "ru":
@@ -867,15 +906,63 @@ class ConverterGUI:
             self.output_label.config(text=directory)
 
     def convert_files(self):
-        """Конвертация выбранных файлов"""
+        """Конвертация выбранных файлов или текста"""
         t = self.translations[self.current_language]
+        
+        # Определяем активную вкладку
+        current_tab_index = self.notebook.index(self.notebook.select())
+        
+        # 0 - Файлы, 1 - Текст
+        if current_tab_index == 1: # Вкладка Текст
+            content = self.text_input.get("1.0", tk.END).strip()
+            if not content:
+                messagebox.showwarning("Предупреждение", "Введите текст для конвертации")
+                return
+
+            # Спрашиваем куда сохранить
+            filetypes = [("Word files", "*.docx")] if self.current_converter_type == "md_to_word" else [("Markdown files", "*.md")]
+            defaultextension = ".docx" if self.current_converter_type == "md_to_word" else ".md"
+            
+            output_path = filedialog.asksaveasfilename(
+                title=t["save_as_title"],
+                defaultextension=defaultextension,
+                filetypes=filetypes
+            )
+
+            if not output_path:
+                return
+
+            self.status_label.config(text=t["status_converting"].format(filename="Text"))
+            self.root.update()
+
+            if self.current_converter_type == "md_to_word":
+                 success, message = self.converter.convert_content(content, output_path)
+            else:
+                 # Для Word -> MD текст вряд ли актуален, но на всякий случай обработаем сохранение
+                 # В данном случае мы просто сохраняем текст в файл, так как конвертер Word->MD работает с файлами
+                 try:
+                     with open(output_path, 'w', encoding='utf-8') as f:
+                         f.write(content)
+                     success, message = True, "Успешно сохранено"
+                 except Exception as e:
+                     success, message = False, str(e)
+
+            if success:
+                messagebox.showinfo("Успех", t["success_message_word"].format(count=1))
+            else:
+                messagebox.showerror(t["error_title"], message)
+            
+            self.status_label.config(text=t["status_finished"])
+            return
+
+
+        # --- Вкладка Файлы ---
         if not self.selected_files:
             messagebox.showwarning("Предупреждение", t["warning_no_files"])
             return
 
-        if not self.output_directory:
-            messagebox.showwarning("Предупреждение", t["warning_no_dir"])
-            return
+        # Удаляем проверку на output_directory, теперь она опциональна
+        # if not self.output_directory: ...
 
         # Сброс прогресса
         self.progress['value'] = 0
@@ -897,7 +984,12 @@ class ConverterGUI:
             else: # word_to_md
                 output_filename = input_path_obj.stem + ".md"
 
-            output_path = os.path.join(self.output_directory, output_filename)
+            # ОПРЕДЕЛЕНИЕ ПУТИ СОХРАНЕНИЯ
+            if self.output_directory:
+                output_path = os.path.join(self.output_directory, output_filename)
+            else:
+                # Если папка не выбрана, сохраняем рядом с исходным файлом
+                output_path = os.path.join(os.path.dirname(input_file), output_filename)
 
             # Конвертируем
             success, message = self.converter.convert_file(input_file, output_path)
