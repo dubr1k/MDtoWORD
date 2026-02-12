@@ -5,7 +5,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.7+-blue?style=for-the-badge&logo=python)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
-![GUI](https://img.shields.io/badge/GUI-Tkinter-orange?style=for-the-badge)
+![GUI](https://img.shields.io/badge/GUI-PyQt6-orange?style=for-the-badge)
 
 **Профессиональный конвертер Markdown файлов в Microsoft Word с графическим интерфейсом**
 
@@ -18,7 +18,7 @@
 ## 🎯 Возможности
 
 ### ✨ Основные функции
-- **🖥️ Графический интерфейс** - Удобный GUI на Tkinter
+- **🖥️ Графический интерфейс** — современный GUI на PyQt6
 - **📦 Пакетная обработка** - Конвертация нескольких файлов одновременно
 - **📊 Прогресс-бар** - Отслеживание процесса конвертации
 - **🎨 Полное форматирование** - Сохранение всех элементов Markdown
@@ -54,18 +54,19 @@ python md_to_word_converter.py
 ```
 
 ### Windows (Быстрый запуск)
-Для Windows пользователей доступен батник `запуск_конвертера.bat` (только локально):
+Для Windows можно создать батник `запуск_конвертера.bat` (файл в .gitignore, при необходимости создаётся локально):
 1. Дважды кликните по `запуск_конвертера.bat`
-2. Программа автоматически установит зависимости и запустится
+2. Программа установит зависимости и запустится
 
 ---
 
 ## 💻 Установка
 
 ### Требования
-- **Python 3.7+** 
+- **Python 3.7+**
 - **python-docx 1.1.2+**
-- **tkinter** (входит в стандартную поставку Python)
+- **PyQt6** — графический интерфейс
+- **Pillow** — работа с иконками
 
 ### Установка зависимостей
 ```bash
@@ -73,7 +74,7 @@ python md_to_word_converter.py
 pip install -r requirements.txt
 
 # Или вручную
-pip install python-docx
+pip install python-docx PyQt6 Pillow
 ```
 
 ---
@@ -164,12 +165,14 @@ def hello_world():
 
 ```
 MDtoWORD/
-├── 📄 md_to_word_converter.py    # Основной скрипт с GUI
+├── 📄 md_to_word_converter.py    # Основной скрипт с GUI (PyQt6)
 ├── 📋 requirements.txt           # Зависимости проекта
 ├── 📖 README.md                  # Документация (этот файл)
-├── 📄 ИНСТРУКЦИЯ.txt             # Краткая инструкция
-├── 🚀 запуск_конвертера.bat      # Быстрый запуск для Windows (локально)
-└── 📝 test_example.md            # Пример Markdown файла (локально)
+├── 📄 DESCRIPTION.md            # Описание репозитория (RU/EN)
+├── 📄 ИНСТРУКЦИЯ.txt             # Краткая инструкция (RU)
+├── 📄 INSTRUCTION_EN.txt         # Краткая инструкция (EN)
+├── 🖼️ ico.png, ico2.png         # Иконки приложения
+└── 📄 .gitignore                 # Игнорируемые файлы
 ```
 
 ---
@@ -221,7 +224,7 @@ pip install python-docx
 
 ![Python](https://img.shields.io/badge/Python-3.7+-blue?style=for-the-badge&logo=python)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
-![GUI](https://img.shields.io/badge/GUI-Tkinter-orange?style=for-the-badge)
+![GUI](https://img.shields.io/badge/GUI-PyQt6-orange?style=for-the-badge)
 
 **A professional Markdown to Microsoft Word converter with a graphical interface**
 
@@ -234,7 +237,7 @@ pip install python-docx
 ## 🎯 Features
 
 ### ✨ Main Functions
-- **🖥️ Graphical Interface** – Convenient GUI built with Tkinter
+- **🖥️ Graphical Interface** – Modern GUI built with PyQt6
 - **📦 Batch Processing** – Convert multiple files at once
 - **📊 Progress Bar** – Track conversion progress
 - **🎨 Full Formatting** – Preserves all Markdown elements
@@ -270,9 +273,9 @@ python md_to_word_converter.py
 ```
 
 ### Windows (Quick Launch)
-For Windows users, there is a batch file `запуск_конвертера.bat` (local use only):
+On Windows you can use a batch file `запуск_конвертера.bat` (not in repo, create locally if needed):
 1. Double-click `запуск_конвертера.bat`
-2. The program will automatically install dependencies and start
+2. The program will install dependencies and start
 
 ---
 
@@ -281,7 +284,8 @@ For Windows users, there is a batch file `запуск_конвертера.bat`
 ### Requirements
 - **Python 3.7+**
 - **python-docx 1.1.2+**
-- **tkinter** (included with Python)
+- **PyQt6** – graphical interface
+- **Pillow** – icon handling
 
 ### Install Dependencies
 ```bash
@@ -289,7 +293,7 @@ For Windows users, there is a batch file `запуск_конвертера.bat`
 pip install -r requirements.txt
 
 # Or manually
-pip install python-docx
+pip install python-docx PyQt6 Pillow
 ```
 
 ---
@@ -380,12 +384,14 @@ def hello_world():
 
 ```
 MDtoWORD/
-├── 📄 md_to_word_converter.py    # Main GUI script
+├── 📄 md_to_word_converter.py    # Main script with PyQt6 GUI
 ├── 📋 requirements.txt           # Project dependencies
 ├── 📖 README.md                  # Documentation (this file)
-├── 📄 INSTRUCTION.txt            # Quick guide
-├── 🚀 запуск_конвертера.bat      # Quick launcher for Windows (local)
-└── 📝 test_example.md            # Markdown example file (local)
+├── 📄 DESCRIPTION.md             # Repository description (RU/EN)
+├── 📄 ИНСТРУКЦИЯ.txt             # Quick guide (RU)
+├── 📄 INSTRUCTION_EN.txt         # Quick guide (EN)
+├── 🖼️ ico.png, ico2.png         # Application icons
+└── 📄 .gitignore                 # Ignored files
 ```
 
 ---
