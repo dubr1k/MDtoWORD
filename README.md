@@ -58,6 +58,9 @@ python md_to_word_converter.py
 1. Дважды кликните по `запуск_конвертера.bat`
 2. Программа установит зависимости и запустится
 
+### Linux (быстрый запуск)
+Из корня проекта: `./scripts/launch_mdtoword.sh` — скрипт сам перейдёт в каталог проекта и запустит приложение (conda-окружение `mdtoword` или системный `python3`).
+
 ---
 
 ## 💻 Установка
@@ -76,6 +79,19 @@ pip install -r requirements.txt
 # Или вручную
 pip install python-docx PyQt6 Pillow
 ```
+
+### Conda (виртуальное окружение)
+```bash
+# Создать окружение из environment.yml
+conda env create -f environment.yml
+
+# Активировать (bash/zsh/fish)
+conda activate mdtoword
+
+# Запуск
+python md_to_word_converter.py
+```
+Для Fish убедитесь, что выполнен `conda init fish` (conda в PATH).
 
 ---
 
@@ -167,11 +183,17 @@ def hello_world():
 MDtoWORD/
 ├── 📄 md_to_word_converter.py    # Основной скрипт с GUI (PyQt6)
 ├── 📋 requirements.txt           # Зависимости проекта
+├── 📋 environment.yml            # Conda-окружение (python-docx, PyQt6, Pillow)
 ├── 📖 README.md                  # Документация (этот файл)
-├── 📄 DESCRIPTION.md            # Описание репозитория (RU/EN)
+├── 📄 DESCRIPTION.md             # Описание репозитория (RU/EN)
 ├── 📄 ИНСТРУКЦИЯ.txt             # Краткая инструкция (RU)
 ├── 📄 INSTRUCTION_EN.txt         # Краткая инструкция (EN)
-├── 🖼️ ico.png, ico2.png         # Иконки приложения
+├── 📁 assets/                    # Ресурсы приложения
+│   ├── ico.png                   # Иконка приложения
+│   └── ico2.png                  # Доп. иконка
+├── 📁 scripts/                   # Скрипты запуска
+│   └── launch_mdtoword.sh        # Запуск из Linux (bash)
+├── 📁 docs/                      # Доп. документация (по необходимости)
 └── 📄 .gitignore                 # Игнорируемые файлы
 ```
 
@@ -277,6 +299,9 @@ On Windows you can use a batch file `запуск_конвертера.bat` (not
 1. Double-click `запуск_конвертера.bat`
 2. The program will install dependencies and start
 
+### Linux (Quick Launch)
+From project root: `./scripts/launch_mdtoword.sh` — the script changes to the project directory and runs the app (conda env `mdtoword` or system `python3`).
+
 ---
 
 ## 💻 Installation
@@ -295,6 +320,19 @@ pip install -r requirements.txt
 # Or manually
 pip install python-docx PyQt6 Pillow
 ```
+
+### Conda (virtual environment)
+```bash
+# Create environment from environment.yml
+conda env create -f environment.yml
+
+# Activate (bash/zsh/fish)
+conda activate mdtoword
+
+# Run
+python md_to_word_converter.py
+```
+For Fish, ensure `conda init fish` has been run (conda in PATH).
 
 ---
 
@@ -386,11 +424,17 @@ def hello_world():
 MDtoWORD/
 ├── 📄 md_to_word_converter.py    # Main script with PyQt6 GUI
 ├── 📋 requirements.txt           # Project dependencies
+├── 📋 environment.yml            # Conda environment (python-docx, PyQt6, Pillow)
 ├── 📖 README.md                  # Documentation (this file)
 ├── 📄 DESCRIPTION.md             # Repository description (RU/EN)
 ├── 📄 ИНСТРУКЦИЯ.txt             # Quick guide (RU)
 ├── 📄 INSTRUCTION_EN.txt         # Quick guide (EN)
-├── 🖼️ ico.png, ico2.png         # Application icons
+├── 📁 assets/                    # Application resources
+│   ├── ico.png                   # Application icon
+│   └── ico2.png                  # Alternate icon
+├── 📁 scripts/                   # Launch scripts
+│   └── launch_mdtoword.sh        # Linux (bash) launcher
+├── 📁 docs/                      # Additional docs (optional)
 └── 📄 .gitignore                 # Ignored files
 ```
 

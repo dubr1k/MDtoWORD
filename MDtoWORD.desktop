@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=MDtoWORD
+Comment=Конвертер Markdown в Word (PyQt6)
+Icon=/home/dubrik/syncthing/development/Профзадачки/MDtoWORD/assets/ico.png
+Exec=/home/dubrik/bin/mdtoword-launch
+Path=/home/dubrik/syncthing/development/Профзадачки/MDtoWORD
+Terminal=false
+StartupNotify=true
+Categories=Office;Utility;

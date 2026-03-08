@@ -383,9 +383,11 @@ class ConverterGUI(QMainWindow):
         self.setWindowTitle("Конвертер Markdown в Word")
         self.resize(800, 700)
 
-        # Устанавливаем иконку приложения
+        # Устанавливаем иконку приложения (assets/ в корне проекта)
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        icon_path = os.path.join(script_dir, 'ico.png')
+        icon_path = os.path.join(script_dir, 'assets', 'ico.png')
+        if not os.path.exists(icon_path):
+            icon_path = os.path.join(script_dir, 'ico.png')  # fallback: иконка в корне
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
