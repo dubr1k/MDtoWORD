@@ -75,6 +75,44 @@ _HEADING_SCALE: dict[int, tuple[float, bool, bool]] = {
 _MATH_INDICATOR = re.compile(r"[\\^_0-9+\-*/=<>]")
 
 
+_THEME_FONT_ATTRS = ("asciiTheme", "hAnsiTheme", "eastAsiaTheme", "cstheme", "csTheme")
+
+
+def _set_style_font(style: ParagraphStyle, font_name: str) -> None:
+    """Set a style's font and clear any theme attributes overriding it.
+
+    Word's built-in style definitions -- most visibly ``Heading 1``-``9``,
+    whose ``w:rFonts`` point at the document theme's
+    ``majorHAnsi``/``majorEastAsia``/``majorBidi`` fonts -- carry ``*Theme``
+    attributes alongside the explicit ``ascii``/``hAnsi`` pair that
+    ``style.font.name = ...`` writes. In OOXML a ``*Theme`` attribute takes
+    precedence over its explicit sibling, so Word keeps rendering the style
+    in the theme's font regardless of what was just set; python-docx's
+    readback of ``style.font.name`` hides this because it only ever reports
+    the explicit value it wrote, never checking whether a theme attribute
+    overrides it. This mirrors the ``w:themeColor`` fix already applied to
+    heading colours, except the colour setter clears the whole ``<w:color>``
+    element while the font-name setter leaves ``w:rFonts`` otherwise
+    untouched -- so the theme attributes have to be stripped here by hand.
+    The lowercase ``cstheme`` spelling is what Word's own template actually
+    writes; ``csTheme`` is stripped too since other OOXML producers vary.
+
+    ``eastAsia`` and ``cs`` are set explicitly too, so text Word would
+    otherwise route to the east-Asian or complex-script slot -- which can
+    include some Cyrillic runs -- also honours the chosen font instead of
+    falling back to whatever those slots would otherwise resolve to.
+    """
+    style.font.name = font_name
+    run_properties = style.element.get_or_add_rPr()
+    fonts = run_properties.get_or_add_rFonts()
+    for attribute in _THEME_FONT_ATTRS:
+        key = qn(f"w:{attribute}")
+        if fonts.get(key) is not None:
+            del fonts.attrib[key]
+    fonts.set(qn("w:eastAsia"), font_name)
+    fonts.set(qn("w:cs"), font_name)
+
+
 class GfmDocxRenderer:
     """Render a GFM token stream into a Word document."""
 
@@ -125,7 +163,7 @@ class GfmDocxRenderer:
 
     def _configure_document(self) -> None:
         style = cast(ParagraphStyle, self.document.styles["Normal"])
-        style.font.name = self.font_name
+        _set_style_font(style, self.font_name)
         style.font.size = self.font_size
         style.font.color.rgb = _BLACK
         for level in range(1, 10):
@@ -134,7 +172,7 @@ class GfmDocxRenderer:
             except KeyError:
                 continue
             heading.font.color.rgb = _BLACK
-            heading.font.name = self.font_name
+            _set_style_font(heading, self.font_name)
             scale = _HEADING_SCALE.get(level)
             if scale is not None:
                 multiplier, bold, italic = scale
@@ -147,6 +185,18 @@ class GfmDocxRenderer:
             pass
         else:
             quote.font.color.rgb = _BLACK
+            _set_style_font(quote, self.font_name)
+        # "List Bullet"/"List Number" carry no rFonts of their own in the
+        # built-in template -- they inherit Normal's font through the style
+        # hierarchy, with no theme override to fight -- but setting them
+        # explicitly here too means that inheritance chain is never the
+        # only thing standing between a list item and the wrong font.
+        for list_style_name in ("List Bullet", "List Number"):
+            try:
+                list_style = cast(ParagraphStyle, self.document.styles[list_style_name])
+            except KeyError:
+                continue
+            _set_style_font(list_style, self.font_name)
 
     def _render_block(self, token: Any, source_path: Path | None) -> None:
         token_type = token.type

@@ -5,6 +5,7 @@ import unittest
 from docx import Document
 
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
 from docx.shared import Pt
 from docx.shared import RGBColor
 
@@ -12,6 +13,14 @@ from gfm_docx_renderer import GfmDocxRenderer
 
 
 _MATH_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
+
+# Every style GfmDocxRenderer applies to a paragraph somewhere in the
+# renderer: Normal for plain body paragraphs, Heading 1-9 for headings,
+# Quote for blockquotes, and List Bullet/List Number for list items.
+_STYLES_THE_RENDERER_APPLIES = (
+    ["Normal"] + [f"Heading {level}" for level in range(1, 10)]
+    + ["Quote", "List Bullet", "List Number"]
+)
 
 
 def _equations(paragraph):
@@ -22,6 +31,26 @@ def _equations(paragraph):
 def _equation_text(equation):
     """All literal text inside one <m:oMath> element, concatenated."""
     return "".join(t.text or "" for t in equation.iter(f"{_MATH_NS}t"))
+
+
+def _rfonts_attrs(style):
+    """The raw ``w:rFonts`` attributes of ``style``, namespace-stripped.
+
+    Reads the XML directly rather than going through python-docx's
+    ``Font.name`` property, since that readback is exactly what hid the
+    theme-font bug: python-docx reports the explicit ``ascii``/``hAnsi``
+    value it just wrote even when a sibling ``*Theme`` attribute is what
+    Word actually honours. Returns ``None`` if the style has no
+    ``w:rFonts`` element at all.
+    """
+    style_element = style.element
+    run_properties = style_element.find(qn("w:rPr"))
+    if run_properties is None:
+        return None
+    rfonts = run_properties.find(qn("w:rFonts"))
+    if rfonts is None:
+        return None
+    return {key.rsplit("}", 1)[-1]: value for key, value in rfonts.attrib.items()}
 
 
 class GfmDocxRendererTests(unittest.TestCase):
@@ -642,6 +671,72 @@ class GfmDocxRendererTests(unittest.TestCase):
         self.assertEqual(len(list_number_paragraphs), 2)
         for paragraph in list_number_paragraphs:
             self.assertEqual(paragraph.alignment, WD_ALIGN_PARAGRAPH.JUSTIFY)
+
+    def test_every_applied_style_uses_the_chosen_font_with_no_theme_override(self):
+        document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "# H1\n\n"
+            "## H2\n\n"
+            "### H3\n\n"
+            "#### H4\n\n"
+            "##### H5\n\n"
+            "###### H6\n\n"
+            "Body paragraph.\n\n"
+            "> quoted text\n\n"
+            "- bullet item\n\n"
+            "1. numbered item\n"
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "theme-fonts.docx"
+            document.save(str(path))
+            reopened = Document(str(path))
+
+        for name in _STYLES_THE_RENDERER_APPLIES:
+            style = reopened.styles[name]
+            attrs = _rfonts_attrs(style)
+            self.assertIsNotNone(attrs, f'"{name}" style has no w:rFonts element')
+            for attribute_name in attrs:
+                self.assertFalse(
+                    attribute_name.lower().endswith("theme"),
+                    f'"{name}" w:rFonts still carries a theme attribute: '
+                    f"{attribute_name}={attrs[attribute_name]!r}",
+                )
+            self.assertEqual(
+                attrs.get("ascii"), "Times New Roman",
+                f'"{name}" w:rFonts/@w:ascii should be the requested font',
+            )
+            self.assertEqual(
+                attrs.get("hAnsi"), "Times New Roman",
+                f'"{name}" w:rFonts/@w:hAnsi should be the requested font',
+            )
+
+    def test_heading_font_comes_from_the_constructor_not_a_hardcoded_theme_font(self):
+        document, _ = GfmDocxRenderer("Georgia", Pt(12)).render(
+            "# H1\n\n"
+            "## H2\n\n"
+            "### H3\n\n"
+            "#### H4\n\n"
+            "##### H5\n\n"
+            "###### H6\n"
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "georgia-headings.docx"
+            document.save(str(path))
+            reopened = Document(str(path))
+
+        for level in range(1, 7):
+            style = reopened.styles[f"Heading {level}"]
+            attrs = _rfonts_attrs(style)
+            self.assertIsNotNone(attrs, f"Heading {level} style has no w:rFonts element")
+            self.assertEqual(
+                attrs.get("ascii"), "Georgia",
+                f"Heading {level} should take its font from the constructor",
+            )
+            self.assertEqual(
+                attrs.get("hAnsi"), "Georgia",
+                f"Heading {level} should take its font from the constructor",
+            )
 
 
 if __name__ == "__main__":
