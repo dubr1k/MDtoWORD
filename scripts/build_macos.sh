@@ -29,4 +29,11 @@ fi
 codesign --force --deep --sign - "dist/MDtoWORD.app"
 codesign --verify --deep --strict --verbose=2 "dist/MDtoWORD.app"
 
+# ditto, not zip: it preserves the bundle's resource forks and code signature.
+ARCHIVE="dist/MDtoWORD-macOS-arm64.zip"
+rm -f "$ARCHIVE" "$ARCHIVE.sha256"
+ditto -c -k --sequesterRsrc --keepParent "dist/MDtoWORD.app" "$ARCHIVE"
+shasum -a 256 "$ARCHIVE" | awk '{print $1 "  MDtoWORD-macOS-arm64.zip"}' > "$ARCHIVE.sha256"
+
 echo "Готово: $PROJECT_ROOT/dist/MDtoWORD.app"
+echo "Архив:  $PROJECT_ROOT/$ARCHIVE"
