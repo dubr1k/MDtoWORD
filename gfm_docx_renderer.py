@@ -18,6 +18,7 @@ from mdit_py_plugins.footnote import footnote_plugin
 
 
 _TASK_PREFIX = re.compile(r"^\[([ xX])\]\s+")
+_BLACK = RGBColor(0, 0, 0)
 
 
 class GfmDocxRenderer:
@@ -66,7 +67,14 @@ class GfmDocxRenderer:
         style = cast(ParagraphStyle, self.document.styles["Normal"])
         style.font.name = self.font_name
         style.font.size = self.font_size
-        style.font.color.rgb = RGBColor(0, 0, 0)
+        style.font.color.rgb = _BLACK
+        for level in range(1, 10):
+            try:
+                heading = cast(ParagraphStyle, self.document.styles[f"Heading {level}"])
+            except KeyError:
+                continue
+            heading.font.color.rgb = _BLACK
+            heading.font.name = self.font_name
 
     def _render_block(self, token: Any, source_path: Path | None) -> None:
         token_type = token.type
@@ -247,7 +255,7 @@ class GfmDocxRenderer:
         run = OxmlElement("w:r")
         properties = OxmlElement("w:rPr")
         color = OxmlElement("w:color")
-        color.set(qn("w:val"), "0563C1")
+        color.set(qn("w:val"), "000000")
         properties.append(color)
         underline = OxmlElement("w:u")
         underline.set(qn("w:val"), "single")

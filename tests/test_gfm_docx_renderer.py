@@ -2,6 +2,7 @@ from pathlib import Path
 import unittest
 
 from docx.shared import Pt
+from docx.shared import RGBColor
 
 from gfm_docx_renderer import GfmDocxRenderer
 
@@ -55,6 +56,23 @@ class GfmDocxRendererTests(unittest.TestCase):
         self.assertIn("Footnotes", text)
         self.assertIn("Footnote text.", text)
         self.assertEqual(warnings, [])
+
+    def test_headings_are_black(self):
+        document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "# Заголовок\n\n## Второй\n\n### Третий\n"
+        )
+        for level in (1, 2, 3):
+            style = document.styles[f"Heading {level}"]
+            self.assertEqual(style.font.color.rgb, RGBColor(0, 0, 0))
+
+    def test_hyperlink_is_black_and_underlined(self):
+        document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "[сайт](https://example.com)\n"
+        )
+        xml = document.paragraphs[0]._p.xml
+        self.assertIn('w:val="000000"', xml)
+        self.assertNotIn("0563C1", xml)
+        self.assertIn("w:u", xml)
 
 
 if __name__ == "__main__":
