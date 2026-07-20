@@ -1,6 +1,7 @@
 from pathlib import Path
 import unittest
 
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
 from docx.shared import RGBColor
 
@@ -73,6 +74,31 @@ class GfmDocxRendererTests(unittest.TestCase):
         self.assertIn('w:val="000000"', xml)
         self.assertNotIn("0563C1", xml)
         self.assertIn("w:u", xml)
+
+    def test_body_paragraphs_are_justified(self):
+        document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "Обычный абзац текста.\n\n- пункт списка\n\n> цитата\n"
+        )
+        justified = [
+            p for p in document.paragraphs
+            if p.alignment == WD_ALIGN_PARAGRAPH.JUSTIFY
+        ]
+        self.assertEqual(len(justified), 3)
+
+    def test_headings_and_code_are_not_justified(self):
+        document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "# Заголовок\n\n```python\nx = 1\n```\n"
+        )
+        for paragraph in document.paragraphs:
+            self.assertNotEqual(paragraph.alignment, WD_ALIGN_PARAGRAPH.JUSTIFY)
+
+    def test_quote_style_color_is_explicit_black_not_theme_color(self):
+        document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "> цитата\n"
+        )
+        style = document.styles["Quote"]
+        self.assertEqual(style.font.color.rgb, RGBColor(0, 0, 0))
+        self.assertNotIn("themeColor", style.element.xml)
 
 
 if __name__ == "__main__":

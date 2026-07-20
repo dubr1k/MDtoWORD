@@ -75,6 +75,12 @@ class GfmDocxRenderer:
                 continue
             heading.font.color.rgb = _BLACK
             heading.font.name = self.font_name
+        try:
+            quote = cast(ParagraphStyle, self.document.styles["Quote"])
+        except KeyError:
+            pass
+        else:
+            quote.font.color.rgb = _BLACK
 
     def _render_block(self, token: Any, source_path: Path | None) -> None:
         token_type = token.type
@@ -160,10 +166,12 @@ class GfmDocxRenderer:
             style = "List Number" if self._list_stack[-1] == "ordered_list_open" else "List Bullet"
             paragraph = self.document.add_paragraph(style=style)
             paragraph.paragraph_format.left_indent = Pt(18 * (len(self._list_stack) - 1))
-            return paragraph
-        if self._quote_depth:
-            return self.document.add_paragraph(style="Quote")
-        return self.document.add_paragraph()
+        elif self._quote_depth:
+            paragraph = self.document.add_paragraph(style="Quote")
+        else:
+            paragraph = self.document.add_paragraph()
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        return paragraph
 
     def _render_inline(
         self, children: list[Any], source_path: Path | None, source_content: str
