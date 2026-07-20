@@ -438,7 +438,7 @@ class ConverterGUI(QMainWindow):
         self.tabs.setTabText(0, text["files_tab"])
         self.tabs.setTabText(1, text["text_tab"])
         self.text_label.setText(text["text_label"])
-        self.text_tab.setVisible(is_markdown)
+        self.tabs.setTabVisible(self.tabs.indexOf(self.text_tab), is_markdown)
         self.output_group.setTitle(text["output"])
         self.output_label.setText(str(self.output_directory) if self.output_directory else text["output_auto"])
         self.choose_output_button.setText(text["choose_output"])

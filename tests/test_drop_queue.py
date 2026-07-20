@@ -108,6 +108,24 @@ class DropFileListTests(unittest.TestCase):
 
             self.assertTrue(window.progress.isHidden())
 
+    def test_text_tab_hidden_in_word_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(
+                str(Path(directory) / "theme.ini"),
+                QSettings.Format.IniFormat,
+            )
+            window = ConverterGUI(theme_manager=ThemeManager(settings=settings))
+            text_index = window.tabs.indexOf(window.text_tab)
+            window.tabs.setCurrentIndex(text_index)
+
+            window.toggle_button.click()
+
+            self.assertFalse(window.tabs.isTabVisible(text_index))
+            self.assertNotEqual(window.tabs.currentIndex(), text_index)
+
+            window.toggle_button.click()
+            self.assertTrue(window.tabs.isTabVisible(text_index))
+
 
 if __name__ == "__main__":
     unittest.main()
