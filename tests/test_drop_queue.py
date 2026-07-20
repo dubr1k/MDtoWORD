@@ -47,6 +47,32 @@ class DropFileListTests(unittest.TestCase):
 
         self.assertEqual(received, ["/tmp/input.md"])
 
+    def test_window_accepts_dropped_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(
+                str(Path(directory) / "theme.ini"),
+                QSettings.Format.IniFormat,
+            )
+            window = ConverterGUI(theme_manager=ThemeManager(settings=settings))
+            md_file = Path(directory) / "input.md"
+            md_file.write_text("# hi", encoding="utf-8")
+
+            mime = QMimeData()
+            mime.setUrls([QUrl.fromLocalFile(str(md_file))])
+            enter = QDragEnterEvent(
+                QPoint(10, 10), Qt.DropAction.CopyAction, mime,
+                Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+            )
+            window.dragEnterEvent(enter)
+            self.assertTrue(enter.isAccepted())
+
+            drop = QDropEvent(
+                QPointF(10, 10), Qt.DropAction.CopyAction, mime,
+                Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+            )
+            window.dropEvent(drop)
+            self.assertEqual(window.selected_files, [md_file.resolve()])
+
     def test_theme_button_switches_application_theme(self):
         with tempfile.TemporaryDirectory() as directory:
             settings = QSettings(

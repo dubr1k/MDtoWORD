@@ -132,6 +132,25 @@ class WordToMarkdownConverter:
             return False, f"Ошибка при конвертации: {str(e)}"
 
 
+def _dropped_local_paths(event: Any | None) -> list[str]:
+    """Local filesystem paths carried by a drop event, if any."""
+    if event is None:
+        return []
+    mime_data = event.mimeData()
+    if mime_data is None:
+        return []
+    return [url.toLocalFile() for url in mime_data.urls() if url.isLocalFile()]
+
+
+def _accept_local_paths_event(event: Any | None) -> None:
+    """Accept a drag event that carries at least one local filesystem path."""
+    if event is None:
+        return
+    if _dropped_local_paths(event):
+        event.acceptProposedAction()
+    else:
+        event.ignore()
+
 class DropFileList(QListWidget):
     """A queue widget that accepts files and directories from the desktop."""
 
@@ -141,32 +160,17 @@ class DropFileList(QListWidget):
         super().__init__(parent)
         self.setAcceptDrops(True)
 
-    @staticmethod
-    def _accept_url_event(event: Any | None) -> None:
-        if event is None:
-            return
-        mime_data = event.mimeData()
-        if mime_data is not None and mime_data.hasUrls() and any(
-            url.isLocalFile() for url in mime_data.urls()
-        ):
-            event.acceptProposedAction()
-        else:
-            event.ignore()
 
     def dragEnterEvent(self, e: QDragEnterEvent | None) -> None:
-        self._accept_url_event(e)
+        _accept_local_paths_event(e)
 
     def dragMoveEvent(self, e: QDragMoveEvent | None) -> None:
-        self._accept_url_event(e)
+        _accept_local_paths_event(e)
 
     def dropEvent(self, event: QDropEvent | None) -> None:
         if event is None:
             return
-        mime_data = event.mimeData()
-        paths = [
-            url.toLocalFile() for url in (mime_data.urls() if mime_data is not None else ())
-            if url.isLocalFile()
-        ]
+        paths = _dropped_local_paths(event)
         if paths:
             self.paths_dropped.emit(paths)
             event.acceptProposedAction()
@@ -235,6 +239,7 @@ class ConverterGUI(QMainWindow):
         }
         self._set_icon()
         self._create_widgets()
+        self.setAcceptDrops(True)
 
     def _set_icon(self) -> None:
         script_dir = Path(__file__).resolve().parent
@@ -247,6 +252,22 @@ class ConverterGUI(QMainWindow):
     @property
     def _text(self) -> dict[str, str]:
         return self.translations[self.current_language]
+
+    def dragEnterEvent(self, event: QDragEnterEvent | None) -> None:
+        _accept_local_paths_event(event)
+
+    def dragMoveEvent(self, event: QDragMoveEvent | None) -> None:
+        _accept_local_paths_event(event)
+
+    def dropEvent(self, event: QDropEvent | None) -> None:
+        paths = _dropped_local_paths(event)
+        if event is None:
+            return
+        if paths:
+            self._add_sources(paths)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
 
     def _create_widgets(self) -> None:
         central = QWidget()
