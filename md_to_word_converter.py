@@ -5,7 +5,7 @@ from pathlib import Path
 from docx import Document
 from docx.shared import Pt
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent, QIcon
+from PyQt6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent, QIcon, QMouseEvent
 from PyQt6.QtWidgets import (
     QApplication, QAbstractItemView, QComboBox, QFileDialog, QGroupBox,
     QHBoxLayout, QLabel, QListWidget, QMainWindow, QMessageBox,
@@ -151,6 +151,7 @@ def _accept_local_paths_event(event: Any | None) -> None:
     else:
         event.ignore()
 
+
 class DropFileList(QListWidget):
     """A queue widget that accepts files and directories from the desktop."""
 
@@ -159,7 +160,6 @@ class DropFileList(QListWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setAcceptDrops(True)
-
 
     def dragEnterEvent(self, e: QDragEnterEvent | None) -> None:
         _accept_local_paths_event(e)
@@ -191,8 +191,12 @@ class DropZoneLabel(QLabel):
         self.setMinimumHeight(80)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-    def mouseReleaseEvent(self, event: Any | None) -> None:
-        if event is not None and event.button() == Qt.MouseButton.LeftButton:
+    def mouseReleaseEvent(self, event: QMouseEvent | None) -> None:
+        if (
+            event is not None
+            and event.button() == Qt.MouseButton.LeftButton
+            and self.rect().contains(event.position().toPoint())
+        ):
             self.clicked.emit()
         super().mouseReleaseEvent(event)
 
@@ -279,9 +283,9 @@ class ConverterGUI(QMainWindow):
         _accept_local_paths_event(event)
 
     def dropEvent(self, event: QDropEvent | None) -> None:
-        paths = _dropped_local_paths(event)
         if event is None:
             return
+        paths = _dropped_local_paths(event)
         if paths:
             self._add_sources(paths)
             event.acceptProposedAction()
@@ -320,9 +324,9 @@ class ConverterGUI(QMainWindow):
 
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs, 1)
-        files_tab = QWidget()
-        files_tab.setObjectName("tab-page")
-        files_layout = QVBoxLayout(files_tab)
+        self.files_tab = QWidget()
+        self.files_tab.setObjectName("tab-page")
+        files_layout = QVBoxLayout(self.files_tab)
         files_layout.setContentsMargins(16, 16, 16, 16)
         files_layout.setSpacing(10)
         self.drop_hint = DropZoneLabel()
@@ -354,7 +358,7 @@ class ConverterGUI(QMainWindow):
         removal.addWidget(self.clear_button)
         removal.addStretch()
         files_layout.addLayout(removal)
-        self.tabs.addTab(files_tab, "")
+        self.tabs.addTab(self.files_tab, "")
 
         self.text_tab = QWidget()
         self.text_tab.setObjectName("tab-page")
@@ -454,8 +458,8 @@ class ConverterGUI(QMainWindow):
         self.add_folder_button.setText(text["add_folder"])
         self.remove_button.setText(text["remove"])
         self.clear_button.setText(text["clear"])
-        self.tabs.setTabText(0, text["files_tab"])
-        self.tabs.setTabText(1, text["text_tab"])
+        self.tabs.setTabText(self.tabs.indexOf(self.files_tab), text["files_tab"])
+        self.tabs.setTabText(self.tabs.indexOf(self.text_tab), text["text_tab"])
         self.text_label.setText(text["text_label"])
         self.tabs.setTabVisible(self.tabs.indexOf(self.text_tab), is_markdown)
         self.output_group.setTitle(text["output"])

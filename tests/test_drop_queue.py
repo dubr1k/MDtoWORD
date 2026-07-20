@@ -111,8 +111,9 @@ class DropFileListTests(unittest.TestCase):
             QApplication.processEvents()
 
             # Smallest supported screen (13" MacBook Air, 956pt) leaves ~900pt
-            # usable after the menu bar; 800 keeps headroom while still
-            # failing decisively on the 944px regression this guard catches.
+            # usable after the menu bar (~24pt) and the Dock (~70pt when
+            # visible); 800 keeps headroom while still failing decisively on
+            # the 944px regression this guard catches.
             self.assertLessEqual(window.minimumSizeHint().height(), 800)
 
             window.hide()
@@ -135,10 +136,11 @@ class DropFileListTests(unittest.TestCase):
             with patch(
                 "md_to_word_converter.QFileDialog.getOpenFileNames",
                 return_value=([], ""),
-            ):
+            ) as mock_dialog:
                 QTest.mouseClick(window.drop_hint, Qt.MouseButton.LeftButton)
 
             self.assertEqual(received, [True])
+            self.assertEqual(mock_dialog.call_count, 1)
 
     def test_progress_indicator_is_hidden_while_idle(self):
         with tempfile.TemporaryDirectory() as directory:
