@@ -1,9 +1,11 @@
 import unittest
+from unittest.mock import patch
 import tempfile
 from pathlib import Path
 
 from PyQt6.QtCore import QMimeData, QPoint, QPointF, QSettings, QUrl, Qt
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
+from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
 from gui_theme import ThemeManager
@@ -96,7 +98,44 @@ class DropFileListTests(unittest.TestCase):
             )
             window = ConverterGUI(theme_manager=ThemeManager(settings=settings))
 
-            self.assertGreaterEqual(window.drop_hint.minimumHeight(), 100)
+            self.assertGreaterEqual(window.drop_hint.minimumHeight(), 80)
+
+    def test_window_fits_small_screens(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(
+                str(Path(directory) / "theme.ini"),
+                QSettings.Format.IniFormat,
+            )
+            window = ConverterGUI(theme_manager=ThemeManager(settings=settings))
+            window.show()
+            QApplication.processEvents()
+
+            self.assertLessEqual(window.minimumSizeHint().height(), 760)
+
+            window.hide()
+
+    def test_drop_zone_click_requests_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(
+                str(Path(directory) / "theme.ini"),
+                QSettings.Format.IniFormat,
+            )
+            window = ConverterGUI(theme_manager=ThemeManager(settings=settings))
+            received = []
+            window.drop_hint.clicked.connect(lambda: received.append(True))
+
+            # QFileDialog.exec() blocks waiting for a modal close event that
+            # never arrives under QT_QPA_PLATFORM=offscreen (verified: this
+            # hangs even with DontUseNativeDialog), so the dialog call itself
+            # is mocked here; the click -> clicked signal -> _select_files
+            # wiring under test is untouched.
+            with patch(
+                "md_to_word_converter.QFileDialog.getOpenFileNames",
+                return_value=([], ""),
+            ):
+                QTest.mouseClick(window.drop_hint, Qt.MouseButton.LeftButton)
+
+            self.assertEqual(received, [True])
 
     def test_progress_indicator_is_hidden_while_idle(self):
         with tempfile.TemporaryDirectory() as directory:

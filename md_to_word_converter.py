@@ -178,6 +178,25 @@ class DropFileList(QListWidget):
             event.ignore()
 
 
+class DropZoneLabel(QLabel):
+    """Clickable drop hint that doubles as a file-picker button."""
+
+    clicked = pyqtSignal()
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("drop-zone")
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setWordWrap(True)
+        self.setMinimumHeight(80)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mouseReleaseEvent(self, event: Any | None) -> None:
+        if event is not None and event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
+
 class ConverterGUI(QMainWindow):
     """Compact GUI for interactive conversion batches."""
 
@@ -188,7 +207,7 @@ class ConverterGUI(QMainWindow):
         if isinstance(app, QApplication):
             self.theme_manager.apply(app)
         self.setWindowTitle("MDtoWord")
-        self.resize(860, 760)
+        self.resize(860, 720)
         self.selected_files: list[Path] = []
         self.output_directory: Path | None = None
         self.current_converter_type = "md_to_word"
@@ -199,7 +218,6 @@ class ConverterGUI(QMainWindow):
             "ru": {
                 "title_md": "Markdown → Word", "title_word": "Word → Markdown",
                 "settings": "Оформление документа", "font": "Шрифт", "size": "Размер",
-                "queue_md": "Файлы Markdown", "queue_word": "Файлы Word",
                 "drop_md": "Перетащите файлы или папки Markdown сюда",
                 "drop_word": "Перетащите файлы или папки Word сюда",
                 "add_files": "Добавить файлы", "add_folder": "Добавить папку",
@@ -219,7 +237,6 @@ class ConverterGUI(QMainWindow):
             "en": {
                 "title_md": "Markdown → Word", "title_word": "Word → Markdown",
                 "settings": "Document appearance", "font": "Font", "size": "Size",
-                "queue_md": "Markdown files", "queue_word": "Word files",
                 "drop_md": "Drop Markdown files or folders here",
                 "drop_word": "Drop Word files or folders here",
                 "add_files": "Add files", "add_folder": "Add folder",
@@ -273,8 +290,8 @@ class ConverterGUI(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
-        layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(20, 14, 20, 16)
+        layout.setSpacing(10)
 
         self.title_label = QLabel()
         self.title_label.setObjectName("title-label")
@@ -304,13 +321,11 @@ class ConverterGUI(QMainWindow):
         files_tab = QWidget()
         files_tab.setObjectName("tab-page")
         files_layout = QVBoxLayout(files_tab)
-        self.queue_group = QGroupBox()
-        queue_layout = QVBoxLayout(self.queue_group)
-        self.drop_hint = QLabel()
-        self.drop_hint.setObjectName("drop-zone")
-        self.drop_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.drop_hint.setMinimumHeight(100)
-        queue_layout.addWidget(self.drop_hint)
+        files_layout.setContentsMargins(16, 16, 16, 16)
+        files_layout.setSpacing(10)
+        self.drop_hint = DropZoneLabel()
+        self.drop_hint.clicked.connect(self._select_files)
+        files_layout.addWidget(self.drop_hint)
         actions = QHBoxLayout()
         self.add_files_button = QPushButton()
         self.add_files_button.clicked.connect(self._select_files)
@@ -319,12 +334,12 @@ class ConverterGUI(QMainWindow):
         actions.addWidget(self.add_files_button)
         actions.addWidget(self.add_folder_button)
         actions.addStretch()
-        queue_layout.addLayout(actions)
+        files_layout.addLayout(actions)
         self.files_listbox = DropFileList()
         self.files_listbox.paths_dropped.connect(self._add_sources)
         self.files_listbox.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.files_listbox.setMinimumHeight(180)
-        queue_layout.addWidget(self.files_listbox)
+        self.files_listbox.setMinimumHeight(90)
+        files_layout.addWidget(self.files_listbox, 1)
         removal = QHBoxLayout()
         self.remove_button = QPushButton()
         self.remove_button.setObjectName("danger-button")
@@ -335,8 +350,7 @@ class ConverterGUI(QMainWindow):
         removal.addWidget(self.remove_button)
         removal.addWidget(self.clear_button)
         removal.addStretch()
-        queue_layout.addLayout(removal)
-        files_layout.addWidget(self.queue_group)
+        files_layout.addLayout(removal)
         self.tabs.addTab(files_tab, "")
 
         self.text_tab = QWidget()
@@ -429,7 +443,6 @@ class ConverterGUI(QMainWindow):
         self.settings_group.setVisible(is_markdown)
         self.font_label.setText(text["font"])
         self.size_label.setText(text["size"])
-        self.queue_group.setTitle(text["queue_md"] if is_markdown else text["queue_word"])
         self.drop_hint.setText(text["drop_md"] if is_markdown else text["drop_word"])
         self.add_files_button.setText(text["add_files"])
         self.add_folder_button.setText(text["add_folder"])
