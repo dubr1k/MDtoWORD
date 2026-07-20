@@ -1,7 +1,7 @@
 from pathlib import Path
 import unittest
 
-from conversion_workflow import discover_sources, resolve_output_paths
+from mdtoword.workflow import discover_sources, resolve_output_paths
 
 
 class ConversionWorkflowTests(unittest.TestCase):

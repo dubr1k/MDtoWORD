@@ -6,7 +6,7 @@ from PyQt6.QtCore import QSettings
 from PyQt6.QtGui import QPalette
 from PyQt6.QtWidgets import QApplication
 
-from gui_theme import ThemeManager
+from mdtoword.theme import ThemeManager
 
 
 class ThemeManagerTests(unittest.TestCase):

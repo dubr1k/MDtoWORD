@@ -9,7 +9,7 @@ from docx.oxml.ns import qn
 from docx.shared import Pt
 from docx.shared import RGBColor
 
-from gfm_docx_renderer import GfmDocxRenderer
+from mdtoword.gfm_renderer import GfmDocxRenderer
 
 
 _MATH_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"

@@ -6,7 +6,7 @@ from pathlib import Path
 project_root = Path(SPECPATH)
 
 a = Analysis(
-    [str(project_root / "md_to_word_converter.py")],
+    [str(project_root / "mdtoword" / "__main__.py")],
     pathex=[str(project_root)],
     binaries=[],
     datas=[(str(project_root / "assets" / "macos-icon.png"), "assets")],
@@ -55,7 +55,7 @@ app = BUNDLE(
     info_plist={
         "CFBundleDisplayName": "MDtoWORD",
         "CFBundleName": "MDtoWORD",
-        "CFBundleShortVersionString": "1.0.0",
+        "CFBundleShortVersionString": "1.1.0",
         "CFBundleVersion": "1",
         "LSApplicationCategoryType": "public.app-category.productivity",
         "LSMinimumSystemVersion": "12.0",

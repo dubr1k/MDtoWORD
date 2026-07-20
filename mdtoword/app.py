@@ -13,9 +13,9 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from conversion_workflow import discover_sources, resolve_output_paths
-from gfm_docx_renderer import GfmDocxRenderer
-from gui_theme import ThemeManager
+from .workflow import discover_sources, resolve_output_paths
+from .gfm_renderer import GfmDocxRenderer
+from .theme import ThemeManager
 
 
 class MarkdownToWordConverter:
@@ -270,12 +270,19 @@ class ConverterGUI(QMainWindow):
         self.setAcceptDrops(True)
 
     def _set_icon(self) -> None:
-        script_dir = Path(__file__).resolve().parent
+        module_dir = Path(__file__).resolve().parent
+        # assets/ лежит в корне проекта — на уровень выше пакета mdtoword,
+        # а в сборке PyInstaller распаковывается рядом с кодом в sys._MEIPASS.
+        search_roots = [module_dir.parent, module_dir]
+        bundle_root = getattr(sys, "_MEIPASS", None)
+        if bundle_root:
+            search_roots.insert(0, Path(bundle_root))
         for icon_name in (("macos-icon.png", "ico.png") if sys.platform == "darwin" else ("ico.png", "macos-icon.png")):
-            icon_path = script_dir / "assets" / icon_name
-            if icon_path.exists():
-                self.setWindowIcon(QIcon(str(icon_path)))
-                return
+            for root in search_roots:
+                icon_path = root / "assets" / icon_name
+                if icon_path.exists():
+                    self.setWindowIcon(QIcon(str(icon_path)))
+                    return
 
     @property
     def _text(self) -> dict[str, str]:

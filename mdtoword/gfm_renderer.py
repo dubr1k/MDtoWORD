@@ -18,7 +18,7 @@ from mdit_py_plugins.amsmath import amsmath_plugin
 from mdit_py_plugins.dollarmath import dollarmath_plugin
 from mdit_py_plugins.footnote import footnote_plugin
 
-from latex_omml import UnsupportedLatexError, latex_to_omml
+from .latex_omml import UnsupportedLatexError, latex_to_omml
 
 
 _TASK_PREFIX = re.compile(r"^\[([ xX])\]\s+")

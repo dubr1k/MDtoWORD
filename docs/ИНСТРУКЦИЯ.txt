@@ -15,7 +15,7 @@
    pip install python-docx
 
 2. Запустите скрипт:
-   python md_to_word_converter.py
+   python -m mdtoword
 
 
 🎯 КАК ИСПОЛЬЗОВАТЬ

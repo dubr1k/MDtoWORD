@@ -35,7 +35,7 @@ cd MDtoWORD
 pip install -r requirements.txt
 
 # 3. Запустите программу
-python md_to_word_converter.py
+python -m mdtoword
 ```
 
 Дальше перетащите файлы или папку в окно и нажмите **«Конвертировать»**. Результат по умолчанию появится рядом с исходниками.
@@ -68,7 +68,7 @@ pip install -r requirements.txt
 conda env create -f environment.yml
 conda activate mdtoword
 
-python md_to_word_converter.py
+python -m mdtoword
 ```
 
 Для Fish убедитесь, что выполнен `conda init fish` (conda в PATH).
@@ -210,34 +210,41 @@ ordinary prose rather than a formula; write a literal "$" as "\$".
 
 ```
 MDtoWORD/
-├── 📄 md_to_word_converter.py    # GUI на PyQt6 и оба конвертера
-├── 📄 gfm_docx_renderer.py       # Рендер GFM-разметки в документ Word
-├── 📄 latex_omml.py              # Разбор LaTeX и сборка уравнений OMML
-├── 📄 conversion_workflow.py     # Поиск исходников и раскладка результатов
-├── 📄 gui_theme.py               # Тёмная и светлая темы, сохранение выбора
+├── 📦 mdtoword/                  # Пакет приложения (запуск: python -m mdtoword)
+│   ├── __init__.py
+│   ├── __main__.py               # Точка входа
+│   ├── app.py                    # GUI на PyQt6 и оба конвертера
+│   ├── gfm_renderer.py           # Рендер GFM-разметки в документ Word
+│   ├── latex_omml.py             # Разбор LaTeX и сборка уравнений OMML
+│   ├── workflow.py               # Поиск исходников и раскладка результатов
+│   └── theme.py                  # Тёмная и светлая темы, сохранение выбора
 ├── 📁 tests/                     # Тесты (unittest)
 │   ├── test_drop_queue.py
 │   ├── test_gui_theme.py
 │   ├── test_conversion_workflow.py
 │   ├── test_gfm_docx_renderer.py
 │   ├── test_markdown_converter.py
-│   └── test_latex_omml.py
+│   ├── test_latex_omml.py
+│   └── test_packaging.py
 ├── 📁 scripts/
 │   ├── build_macos.sh            # Сборка MDtoWORD.app (Apple Silicon)
 │   ├── build_windows.ps1         # Сборка бандла и архива для Windows
 │   └── launch_mdtoword.sh        # Запуск из Linux (bash)
 ├── 📁 packaging/
+│   ├── MDtoWORD.desktop          # Ярлык рабочего стола (Linux)
 │   └── windows_version_info.txt  # Метаданные версии для Windows-сборки
 ├── 📁 assets/                    # Иконки приложения (png, icns, ico)
-├── 📁 docs/superpowers/          # Планы и спецификации разработки
+├── 📁 docs/
+│   ├── DESCRIPTION.md            # Описание репозитория (RU/EN)
+│   ├── ИНСТРУКЦИЯ.txt            # Краткая инструкция (RU)
+│   ├── INSTRUCTION_EN.txt        # Краткая инструкция (EN)
+│   ├── 📁 design/                # Планы и спецификации разработки
+│   └── 📁 releases/              # Заметки к выпускам (1.0, 1.1)
 ├── 📄 MDtoWORD.spec              # Конфигурация PyInstaller (macOS)
 ├── 📋 requirements.txt           # Зависимости приложения
 ├── 📋 requirements-build.txt     # Зависимости сборки (PyInstaller)
 ├── 📋 environment.yml            # Conda-окружение (Python 3.11)
-├── 📖 README.md                  # Документация (этот файл)
-├── 📄 DESCRIPTION.md             # Описание репозитория (RU/EN)
-├── 📄 ИНСТРУКЦИЯ.txt             # Краткая инструкция (RU)
-└── 📄 INSTRUCTION_EN.txt         # Краткая инструкция (EN)
+└── 📖 README.md                  # Документация (этот файл)
 ```
 
 ---
@@ -263,10 +270,11 @@ MDtoWORD/
 ```bash
 QT_QPA_PLATFORM=offscreen python -m unittest \
     tests.test_drop_queue tests.test_gui_theme tests.test_conversion_workflow \
-    tests.test_gfm_docx_renderer tests.test_markdown_converter tests.test_latex_omml
+    tests.test_gfm_docx_renderer tests.test_markdown_converter tests.test_latex_omml \
+    tests.test_packaging
 ```
 
-Сейчас в наборе **111 тестов**. Переменная `QT_QPA_PLATFORM=offscreen` нужна, чтобы тесты интерфейса работали без экрана.
+Сейчас в наборе **116 тестов**. Переменная `QT_QPA_PLATFORM=offscreen` нужна, чтобы тесты интерфейса работали без экрана.
 
 Автономные сборки:
 
@@ -350,7 +358,7 @@ cd MDtoWORD
 pip install -r requirements.txt
 
 # 3. Run the program
-python md_to_word_converter.py
+python -m mdtoword
 ```
 
 Then drop files or a folder onto the window and press **"Convert"**. By default the results land next to their sources.
@@ -383,7 +391,7 @@ pip install -r requirements.txt
 conda env create -f environment.yml
 conda activate mdtoword
 
-python md_to_word_converter.py
+python -m mdtoword
 ```
 
 For Fish, make sure `conda init fish` has been run (conda on PATH).
@@ -525,34 +533,41 @@ Cyrillic inside `$…$` counts as another sign of ordinary prose — unless it i
 
 ```
 MDtoWORD/
-├── 📄 md_to_word_converter.py    # PyQt6 GUI and both converters
-├── 📄 gfm_docx_renderer.py       # Renders GFM markup into a Word document
-├── 📄 latex_omml.py              # Parses LaTeX and builds OMML equations
-├── 📄 conversion_workflow.py     # Source discovery and output path allocation
-├── 📄 gui_theme.py               # Dark and light themes, persisted choice
+├── 📦 mdtoword/                  # Application package (run: python -m mdtoword)
+│   ├── __init__.py
+│   ├── __main__.py               # Entry point
+│   ├── app.py                    # PyQt6 GUI and both converters
+│   ├── gfm_renderer.py           # Renders GFM markup into a Word document
+│   ├── latex_omml.py             # Parses LaTeX and builds OMML equations
+│   ├── workflow.py               # Source discovery and output path allocation
+│   └── theme.py                  # Dark and light themes, persisted choice
 ├── 📁 tests/                     # Test suite (unittest)
 │   ├── test_drop_queue.py
 │   ├── test_gui_theme.py
 │   ├── test_conversion_workflow.py
 │   ├── test_gfm_docx_renderer.py
 │   ├── test_markdown_converter.py
-│   └── test_latex_omml.py
+│   ├── test_latex_omml.py
+│   └── test_packaging.py
 ├── 📁 scripts/
 │   ├── build_macos.sh            # Builds MDtoWORD.app (Apple Silicon)
 │   ├── build_windows.ps1         # Builds the Windows bundle and archive
 │   └── launch_mdtoword.sh        # Linux (bash) launcher
 ├── 📁 packaging/
+│   ├── MDtoWORD.desktop          # Desktop entry (Linux)
 │   └── windows_version_info.txt  # Version metadata for the Windows build
 ├── 📁 assets/                    # Application icons (png, icns, ico)
-├── 📁 docs/superpowers/          # Development plans and specifications
+├── 📁 docs/
+│   ├── DESCRIPTION.md            # Repository description (RU/EN)
+│   ├── ИНСТРУКЦИЯ.txt            # Quick guide (RU)
+│   ├── INSTRUCTION_EN.txt        # Quick guide (EN)
+│   ├── 📁 design/                # Development plans and specifications
+│   └── 📁 releases/              # Release notes (1.0, 1.1)
 ├── 📄 MDtoWORD.spec              # PyInstaller configuration (macOS)
 ├── 📋 requirements.txt           # Application dependencies
 ├── 📋 requirements-build.txt     # Build dependencies (PyInstaller)
 ├── 📋 environment.yml            # Conda environment (Python 3.11)
-├── 📖 README.md                  # Documentation (this file)
-├── 📄 DESCRIPTION.md             # Repository description (RU/EN)
-├── 📄 ИНСТРУКЦИЯ.txt             # Quick guide (RU)
-└── 📄 INSTRUCTION_EN.txt         # Quick guide (EN)
+└── 📖 README.md                  # Documentation (this file)
 ```
 
 ---
@@ -578,10 +593,11 @@ Run the tests from the project root:
 ```bash
 QT_QPA_PLATFORM=offscreen python -m unittest \
     tests.test_drop_queue tests.test_gui_theme tests.test_conversion_workflow \
-    tests.test_gfm_docx_renderer tests.test_markdown_converter tests.test_latex_omml
+    tests.test_gfm_docx_renderer tests.test_markdown_converter tests.test_latex_omml \
+    tests.test_packaging
 ```
 
-The suite currently holds **111 tests**. `QT_QPA_PLATFORM=offscreen` lets the interface tests run without a display.
+The suite currently holds **116 tests**. `QT_QPA_PLATFORM=offscreen` lets the interface tests run without a display.
 
 Standalone bundles:
 

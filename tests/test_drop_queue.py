@@ -8,9 +8,9 @@ from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
-from gui_theme import ThemeManager
+from mdtoword.theme import ThemeManager
 
-from md_to_word_converter import ConverterGUI, DropFileList
+from mdtoword.app import ConverterGUI, DropFileList
 
 
 class DropFileListTests(unittest.TestCase):
@@ -134,7 +134,7 @@ class DropFileListTests(unittest.TestCase):
             # is mocked here; the click -> clicked signal -> _select_files
             # wiring under test is untouched.
             with patch(
-                "md_to_word_converter.QFileDialog.getOpenFileNames",
+                "mdtoword.app.QFileDialog.getOpenFileNames",
                 return_value=([], ""),
             ) as mock_dialog:
                 QTest.mouseClick(window.drop_hint, Qt.MouseButton.LeftButton)
@@ -253,8 +253,8 @@ class DropFileListTests(unittest.TestCase):
 
             with patch.object(
                 window.converter, "convert_file", side_effect=mutate_then_convert
-            ), patch("md_to_word_converter.QMessageBox.information") as mock_info, patch(
-                "md_to_word_converter.QMessageBox.warning"
+            ), patch("mdtoword.app.QMessageBox.information") as mock_info, patch(
+                "mdtoword.app.QMessageBox.warning"
             ) as mock_warning:
                 window._convert_files()
 
@@ -297,8 +297,8 @@ class DropFileListTests(unittest.TestCase):
 
             with patch.object(
                 window.converter, "convert_file", side_effect=record_then_convert
-            ), patch("md_to_word_converter.QMessageBox.information") as mock_info, patch(
-                "md_to_word_converter.QMessageBox.warning"
+            ), patch("mdtoword.app.QMessageBox.information") as mock_info, patch(
+                "mdtoword.app.QMessageBox.warning"
             ) as mock_warning:
                 window._convert_files()
 
@@ -319,8 +319,8 @@ class DropFileListTests(unittest.TestCase):
             a_md.write_text("# a", encoding="utf-8")
             window._add_sources([str(a_md)])
 
-            with patch("md_to_word_converter.QMessageBox.information") as mock_info, patch(
-                "md_to_word_converter.QMessageBox.warning"
+            with patch("mdtoword.app.QMessageBox.information") as mock_info, patch(
+                "mdtoword.app.QMessageBox.warning"
             ) as mock_warning:
                 window._convert_files()
 

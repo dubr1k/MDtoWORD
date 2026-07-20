@@ -5,7 +5,7 @@ from docx import Document
 from docx.oxml.ns import nsmap as _nsmap
 from docx.oxml.ns import qn
 
-from latex_omml import (
+from mdtoword.latex_omml import (
     _ACCENTS,
     _ESCAPED,
     _LIMIT_OPERATORS,

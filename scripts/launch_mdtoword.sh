@@ -7,7 +7,7 @@ cd "$PROJECT_ROOT" || exit 1
 
 # Предпочтительно Python из conda-окружения mdtoword, иначе системный
 if [ -x "$HOME/.conda/envs/mdtoword/bin/python" ]; then
-    exec "$HOME/.conda/envs/mdtoword/bin/python" "$PROJECT_ROOT/md_to_word_converter.py"
+    exec "$HOME/.conda/envs/mdtoword/bin/python" -m mdtoword
 else
-    exec python3 "$PROJECT_ROOT/md_to_word_converter.py"
+    exec python3 -m mdtoword
 fi

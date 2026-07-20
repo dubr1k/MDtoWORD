@@ -12,7 +12,7 @@ python -m PyInstaller `
     --icon assets/MDtoWORD.ico `
     --add-data "assets/ico.png;assets" `
     --version-file packaging/windows_version_info.txt `
-    md_to_word_converter.py
+    mdtoword/__main__.py
 
 $BundleDirectory = Join-Path $ProjectRoot "dist/MDtoWORD"
 $Executable = Join-Path $BundleDirectory "MDtoWORD.exe"

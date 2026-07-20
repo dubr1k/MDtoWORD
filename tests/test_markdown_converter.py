@@ -2,7 +2,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from md_to_word_converter import MarkdownToWordConverter
+from mdtoword.app import MarkdownToWordConverter
 
 
 class MarkdownConverterTests(unittest.TestCase):

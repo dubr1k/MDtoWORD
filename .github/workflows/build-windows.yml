@@ -32,7 +32,7 @@ jobs:
           python -m pip install -r requirements.txt -r requirements-build.txt
 
       - name: Validate source
-        run: python -m py_compile md_to_word_converter.py
+        run: python -m compileall mdtoword
 
       - name: Build Windows bundle
         shell: pwsh
