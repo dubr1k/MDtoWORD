@@ -126,6 +126,29 @@ class DropFileListTests(unittest.TestCase):
             window.toggle_button.click()
             self.assertTrue(window.tabs.isTabVisible(text_index))
 
+    def test_card_title_row_has_uniform_background(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(
+                str(Path(directory) / "theme.ini"),
+                QSettings.Format.IniFormat,
+            )
+            window = ConverterGUI(theme_manager=ThemeManager(settings=settings))
+            window.show()
+            QApplication.processEvents()
+
+            image = window.grab().toImage()
+            group = window.output_group
+            origin = group.mapTo(window, QPoint(0, 0))
+            left = image.pixelColor(origin.x() + 40, origin.y() + 4)
+            right = image.pixelColor(
+                origin.x() + group.width() - 40, origin.y() + 4
+            )
+
+            self.assertEqual(left.name(), right.name())
+            self.assertEqual(left.name(), "#161b22")
+
+            window.hide()
+
 
 if __name__ == "__main__":
     unittest.main()

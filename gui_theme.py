@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PyQt6.QtCore import QSettings
+from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QApplication
 
 
@@ -30,8 +31,8 @@ _PALETTES = {
         background="#0D1117",
         surface="#161B22",
         surface_raised="#1C2129",
-        border="#21262D",
-        border_strong="#30363D",
+        border="#2A3038",
+        border_strong="#3B4552",
         text="#F0F6FC",
         text_muted="#A9B1D6",
         accent="#7C6CFF",
@@ -47,8 +48,8 @@ _PALETTES = {
         background="#F6F8FC",
         surface="#FFFFFF",
         surface_raised="#F0F3F8",
-        border="#D8DEE9",
-        border_strong="#BEC7D5",
+        border="#D0D7E2",
+        border_strong="#AEB9C9",
         text="#19202B",
         text_muted="#5D687A",
         accent="#5E50D6",
@@ -79,7 +80,38 @@ class ThemeManager:
 
     def apply(self, app: QApplication) -> None:
         app.setStyle("Fusion")
+        app.setPalette(self._widget_palette(_PALETTES[self.theme]))
         app.setStyleSheet(self.stylesheet(self.theme))
+
+    @staticmethod
+    def _widget_palette(palette: ThemePalette) -> QPalette:
+        qpalette = QPalette()
+        color_roles = {
+            QPalette.ColorRole.Window: palette.background,
+            QPalette.ColorRole.WindowText: palette.text,
+            QPalette.ColorRole.Base: palette.input,
+            QPalette.ColorRole.AlternateBase: palette.surface,
+            QPalette.ColorRole.Text: palette.text,
+            QPalette.ColorRole.Button: palette.surface,
+            QPalette.ColorRole.ButtonText: palette.text,
+            QPalette.ColorRole.BrightText: palette.text,
+            QPalette.ColorRole.Highlight: palette.accent,
+            QPalette.ColorRole.HighlightedText: "#FFFFFF",
+            QPalette.ColorRole.Link: palette.accent,
+            QPalette.ColorRole.ToolTipBase: palette.surface_raised,
+            QPalette.ColorRole.ToolTipText: palette.text,
+            QPalette.ColorRole.PlaceholderText: palette.text_muted,
+        }
+        for role, value in color_roles.items():
+            qpalette.setColor(role, QColor(value))
+        disabled = QColor(palette.disabled)
+        for role in (
+            QPalette.ColorRole.Text,
+            QPalette.ColorRole.ButtonText,
+            QPalette.ColorRole.WindowText,
+        ):
+            qpalette.setColor(QPalette.ColorGroup.Disabled, role, disabled)
+        return qpalette
 
     @staticmethod
     def stylesheet(theme: str) -> str:
@@ -101,25 +133,23 @@ class ThemeManager:
                 letter-spacing: -0.3px;
             }}
             QLabel#status-label {{ color: {palette.text_muted}; font-weight: 600; }}
-            QLabel#drop-zone {{ color: {palette.accent}; font-size: 15px; font-weight: 600; }}
             QLabel#output-path {{ background: {palette.surface_raised}; border-radius: 8px; color: {palette.text_muted}; padding: 9px 11px; }}
 
             QGroupBox {{
                 background: {palette.surface};
                 border: 1px solid {palette.border};
                 border-radius: 12px;
-                margin-top: 16px;
-                padding: 18px 16px 15px 16px;
+                margin-top: 0;
+                padding: 30px 14px 12px 14px;
                 font-weight: 700;
             }}
             QGroupBox::title {{
-                subcontrol-origin: margin;
+                subcontrol-origin: border;
                 subcontrol-position: top left;
                 left: 14px;
-                background: {palette.surface};
-                border: none;
-                border-radius: 4px;
-                padding: 1px 8px;
+                top: 9px;
+                background: transparent;
+                padding: 0;
                 color: {palette.text};
             }}
 
@@ -145,14 +175,6 @@ class ThemeManager:
             QLineEdit:disabled, QPlainTextEdit:disabled, QListWidget:disabled,
             QComboBox:disabled, QSpinBox:disabled {{ color: {palette.disabled}; }}
 
-            QComboBox::drop-down {{
-                border: 0;
-                width: 28px;
-            }}
-            QComboBox::down-arrow {{
-                width: 8px;
-                height: 8px;
-            }}
             QComboBox QAbstractItemView {{
                 background: {palette.surface_raised};
                 border: 1px solid {palette.border_strong};
@@ -221,6 +243,10 @@ class ThemeManager:
                 background: {palette.surface_raised};
                 border: 2px dashed {palette.accent};
                 border-radius: 12px;
+                color: {palette.accent};
+                font-size: 15px;
+                font-weight: 600;
+                padding: 12px 16px;
             }}
             QProgressBar {{
                 background: {palette.input};

@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from PyQt6.QtCore import QSettings
+from PyQt6.QtGui import QPalette
 from PyQt6.QtWidgets import QApplication
 
 from gui_theme import ThemeManager
@@ -44,6 +45,19 @@ class ThemeManagerTests(unittest.TestCase):
         restored = ThemeManager(settings=self.settings)
         self.assertEqual(restored.theme, "light")
         self.assertIn("#F6F8FC", self.app.styleSheet())
+
+    def test_apply_sets_fusion_palette(self):
+        manager = ThemeManager(settings=self.settings)
+        manager.apply(self.app)
+        self.assertEqual(
+            self.app.palette().color(QPalette.ColorRole.Window).name().upper(),
+            "#0D1117",
+        )
+
+    def test_stylesheet_keeps_native_combo_arrow(self):
+        stylesheet = ThemeManager.stylesheet("dark")
+        self.assertNotIn("down-arrow", stylesheet)
+        self.assertNotIn("::drop-down", stylesheet)
 
 
 if __name__ == "__main__":
