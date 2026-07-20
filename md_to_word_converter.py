@@ -24,6 +24,7 @@ class MarkdownToWordConverter:
     def __init__(self):
         self.default_font_name = "Times New Roman"
         self.default_font_size = Pt(12)
+        self.footnotes_heading = "Footnotes"
 
     def convert_content(
         self, content: str, output_path: str | Path, source_path: Path | None = None
@@ -31,7 +32,7 @@ class MarkdownToWordConverter:
         """Convert Markdown text and save it at *output_path*."""
         try:
             document, warnings = GfmDocxRenderer(
-                self.default_font_name, self.default_font_size
+                self.default_font_name, self.default_font_size, self.footnotes_heading
             ).render(content, source_path=source_path)
             document.save(str(output_path))
             message = "Успешно конвертировано"
@@ -238,6 +239,7 @@ class ConverterGUI(QMainWindow):
                 "no_files": "Добавьте файлы или папку для конвертации",
                 "empty_text": "Введите текст для конвертации", "save_as": "Сохранить как",
                 "errors": "Конвертация завершена с ошибками", "result": "Готово: {success}\nОшибок: {errors}",
+                "footnotes_heading": "Сноски",
             },
             "en": {
                 "title_md": "Markdown → Word", "title_word": "Word → Markdown",
@@ -258,8 +260,11 @@ class ConverterGUI(QMainWindow):
                 "no_files": "Add files or a folder to convert",
                 "empty_text": "Enter text to convert", "save_as": "Save as",
                 "errors": "Conversion completed with errors", "result": "Complete: {success}\nErrors: {errors}",
+                "footnotes_heading": "Footnotes",
             },
         }
+        if isinstance(self.converter, MarkdownToWordConverter):
+            self.converter.footnotes_heading = self._text["footnotes_heading"]
         self._set_icon()
         self._create_widgets()
         self.setAcceptDrops(True)
@@ -423,11 +428,14 @@ class ConverterGUI(QMainWindow):
         if isinstance(self.converter, MarkdownToWordConverter):
             self.converter.default_font_name = self.font_combobox.currentText()
             self.converter.default_font_size = Pt(self.size_spinbox.value())
+            self.converter.footnotes_heading = self._text["footnotes_heading"]
         self.selected_files = discover_sources(self.selected_files, self.current_converter_type)
         self._update_ui()
 
     def _toggle_language(self) -> None:
         self.current_language = "en" if self.current_language == "ru" else "ru"
+        if isinstance(self.converter, MarkdownToWordConverter):
+            self.converter.footnotes_heading = self._text["footnotes_heading"]
         self._update_ui()
 
     def _toggle_theme(self) -> None:

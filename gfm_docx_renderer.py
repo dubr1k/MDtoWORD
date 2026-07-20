@@ -116,9 +116,10 @@ def _set_style_font(style: ParagraphStyle, font_name: str) -> None:
 class GfmDocxRenderer:
     """Render a GFM token stream into a Word document."""
 
-    def __init__(self, font_name: str, font_size: Pt):
+    def __init__(self, font_name: str, font_size: Pt, footnotes_heading: str = "Footnotes"):
         self.font_name = font_name
         self.font_size = font_size
+        self.footnotes_heading = footnotes_heading
         self.document: DocumentType
         self.warnings: list[str]
         self._paragraph: Any
@@ -287,7 +288,7 @@ class GfmDocxRenderer:
             self._finish_table()
             return
         if token_type == "footnote_block_open":
-            self.document.add_heading("Footnotes", level=2)
+            self.document.add_heading(self.footnotes_heading, level=2)
             self._footnote_depth += 1
             return
         if token_type == "footnote_block_close":

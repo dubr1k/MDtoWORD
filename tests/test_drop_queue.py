@@ -338,6 +338,38 @@ class DropFileListTests(unittest.TestCase):
             )
             self.assertEqual(mock_info.call_count, 1)
 
+    def test_translations_include_localized_footnotes_heading(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(
+                str(Path(directory) / "theme.ini"),
+                QSettings.Format.IniFormat,
+            )
+            window = ConverterGUI(theme_manager=ThemeManager(settings=settings))
+
+            self.assertEqual(window.translations["ru"]["footnotes_heading"], "Сноски")
+            self.assertEqual(window.translations["en"]["footnotes_heading"], "Footnotes")
+
+    def test_toggling_language_syncs_converter_footnotes_heading(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(
+                str(Path(directory) / "theme.ini"),
+                QSettings.Format.IniFormat,
+            )
+            window = ConverterGUI(theme_manager=ThemeManager(settings=settings))
+
+            self.assertEqual(window.current_language, "ru")
+            self.assertEqual(window.converter.footnotes_heading, "Сноски")
+
+            window.language_button.click()
+
+            self.assertEqual(window.current_language, "en")
+            self.assertEqual(window.converter.footnotes_heading, "Footnotes")
+
+            window.language_button.click()
+
+            self.assertEqual(window.current_language, "ru")
+            self.assertEqual(window.converter.footnotes_heading, "Сноски")
+
 
 if __name__ == "__main__":
     unittest.main()

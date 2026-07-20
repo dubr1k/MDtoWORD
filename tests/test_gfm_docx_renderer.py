@@ -103,6 +103,23 @@ class GfmDocxRendererTests(unittest.TestCase):
         self.assertIn("Footnote text.", text)
         self.assertEqual(warnings, [])
 
+    def test_footnotes_heading_defaults_to_english(self):
+        document, _ = self.renderer.render(
+            "Text with a footnote.[^1]\n\n[^1]: Footnote text."
+        )
+
+        headings = [p.text for p in document.paragraphs if p.style.name == "Heading 2"]
+        self.assertEqual(headings, ["Footnotes"])
+
+    def test_footnotes_heading_can_be_localized(self):
+        renderer = GfmDocxRenderer("Arial", Pt(12), footnotes_heading="Сноски")
+        document, _ = renderer.render(
+            "Text with a footnote.[^1]\n\n[^1]: Footnote text."
+        )
+
+        headings = [p.text for p in document.paragraphs if p.style.name == "Heading 2"]
+        self.assertEqual(headings, ["Сноски"])
+
     def test_headings_are_black(self):
         document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
             "# Заголовок\n\n## Второй\n\n### Третий\n"
