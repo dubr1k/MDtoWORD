@@ -557,10 +557,11 @@ class ConverterGUI(QMainWindow):
             self.clear_button,
             self.drop_hint,
         )
-        for widget in lockable_widgets:
-            widget.setEnabled(False)
-        self.setAcceptDrops(False)
         try:
+            for widget in lockable_widgets:
+                widget.setEnabled(False)
+            self.setAcceptDrops(False)
+            self.files_listbox.setAcceptDrops(False)
             self.progress.show()
             self.progress.setRange(0, len(queue))
             success_count = 0
@@ -588,7 +589,9 @@ class ConverterGUI(QMainWindow):
             self.status_label.setText(self._text["finished"])
         finally:
             self.progress.hide()
+            self.progress.reset()
             self.setAcceptDrops(True)
+            self.files_listbox.setAcceptDrops(True)
             for widget in lockable_widgets:
                 widget.setEnabled(True)
             self._update_queue_buttons()
