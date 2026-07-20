@@ -35,6 +35,7 @@ class GfmDocxRenderer:
         self._table_rows: list[list[str]] | None
         self._table_row: list[str] | None
         self._table_cell: list[str] | None
+        self._table_alignments: list[str | None]
         self._table_header: bool
         self._footnote_depth: int
 
@@ -50,6 +51,7 @@ class GfmDocxRenderer:
         self._table_row = None
         self._table_cell = None
         self._table_header = False
+        self._table_alignments = []
         self._footnote_depth = 0
         self._configure_document()
 
@@ -120,6 +122,7 @@ class GfmDocxRenderer:
             return
         if token_type == "table_open":
             self._table_rows = []
+            self._table_alignments = []
             return
         if token_type == "thead_open":
             self._table_header = True
@@ -132,6 +135,14 @@ class GfmDocxRenderer:
             return
         if token_type in {"th_open", "td_open"}:
             self._table_cell = []
+            if self._table_header:
+                style_attr = token.attrGet("style") or ""
+                if "right" in style_attr:
+                    self._table_alignments.append("right")
+                elif "center" in style_attr:
+                    self._table_alignments.append("center")
+                else:
+                    self._table_alignments.append(None)
             return
         if token_type in {"th_close", "td_close"}:
             if self._table_row is not None and self._table_cell is not None:
@@ -156,6 +167,7 @@ class GfmDocxRenderer:
         if token_type == "footnote_open":
             label = token.meta["label"]
             self._paragraph = self.document.add_paragraph(style="List Number")
+            self._paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             self._paragraph.add_run(f"[{label}] ")
             return
         if token_type == "footnote_close":
@@ -333,11 +345,37 @@ class GfmDocxRenderer:
         columns = max(len(row) for row in self._table_rows)
         table = self.document.add_table(rows=len(self._table_rows), cols=columns)
         table.style = "Table Grid"
+        self._apply_table_borders(table)
+        alignments = {
+            "right": WD_ALIGN_PARAGRAPH.RIGHT,
+            "center": WD_ALIGN_PARAGRAPH.CENTER,
+        }
         for row_index, values in enumerate(self._table_rows):
             for column_index, value in enumerate(values):
                 paragraph = table.cell(row_index, column_index).paragraphs[0]
                 run = paragraph.add_run(value)
                 if row_index == 0:
                     run.bold = True
-                paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                column_alignment = (
+                    self._table_alignments[column_index]
+                    if column_index < len(self._table_alignments)
+                    else None
+                )
+                paragraph.alignment = alignments.get(
+                    column_alignment or "", WD_ALIGN_PARAGRAPH.LEFT
+                )
         self._table_rows = None
+        self._table_alignments = []
+
+    @staticmethod
+    def _apply_table_borders(table: Any) -> None:
+        """Write borders as direct formatting so every viewer renders them."""
+        borders = OxmlElement("w:tblBorders")
+        for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+            element = OxmlElement(f"w:{edge}")
+            element.set(qn("w:val"), "single")
+            element.set(qn("w:sz"), "4")
+            element.set(qn("w:space"), "0")
+            element.set(qn("w:color"), "000000")
+            borders.append(element)
+        table._tbl.tblPr.append(borders)

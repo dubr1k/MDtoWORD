@@ -100,6 +100,39 @@ class GfmDocxRendererTests(unittest.TestCase):
         self.assertEqual(style.font.color.rgb, RGBColor(0, 0, 0))
         self.assertNotIn("themeColor", style.element.xml)
 
+    def test_table_has_explicit_borders(self):
+        document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "| a | b |\n|---|---|\n| 1 | 2 |\n"
+        )
+        table_xml = document.tables[0]._tbl.tblPr.xml
+        self.assertIn("tblBorders", table_xml)
+        for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+            self.assertIn(f"w:{edge}", table_xml)
+
+    def test_table_respects_markdown_column_alignment(self):
+        document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "| left | right | center |\n|:---|---:|:---:|\n| a | b | c |\n"
+        )
+        body = document.tables[0].rows[1]
+        self.assertEqual(body.cells[0].paragraphs[0].alignment, WD_ALIGN_PARAGRAPH.LEFT)
+        self.assertEqual(body.cells[1].paragraphs[0].alignment, WD_ALIGN_PARAGRAPH.RIGHT)
+        self.assertEqual(body.cells[2].paragraphs[0].alignment, WD_ALIGN_PARAGRAPH.CENTER)
+
+    def test_footnote_paragraphs_are_justified_like_body_lists(self):
+        document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "1. пункт списка\n\n"
+            "Текст со сноской[^1]\n\n"
+            "[^1]: Содержимое сноски.\n"
+        )
+        list_number_paragraphs = [
+            paragraph
+            for paragraph in document.paragraphs
+            if paragraph.style.name == "List Number"
+        ]
+        self.assertEqual(len(list_number_paragraphs), 2)
+        for paragraph in list_number_paragraphs:
+            self.assertEqual(paragraph.alignment, WD_ALIGN_PARAGRAPH.JUSTIFY)
+
 
 if __name__ == "__main__":
     unittest.main()
