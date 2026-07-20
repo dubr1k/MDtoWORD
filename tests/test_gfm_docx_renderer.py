@@ -137,6 +137,16 @@ class GfmDocxRendererTests(unittest.TestCase):
         self.assertIn("a*b*c", text)
         self.assertIn(r"50\%", text)
 
+    def test_dollar_amounts_in_prose_survive_verbatim(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "This costs $5 and that costs $10, total $15."
+        )
+        text = document.paragraphs[0].text
+        self.assertEqual(
+            text, "This costs $5 and that costs $10, total $15."
+        )
+        self.assertEqual(warnings, [])
+
     def test_display_math_survives_verbatim(self):
         document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
             "$$\n\\int_0^\\infty e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}\n$$\n"
@@ -144,6 +154,15 @@ class GfmDocxRendererTests(unittest.TestCase):
         text = "\n".join(p.text for p in document.paragraphs)
         self.assertIn(r"\,dx", text)
         self.assertIn(r"\frac{\sqrt{\pi}}{2}", text)
+
+    def test_equation_label_is_not_dropped(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "$$\nx = 1\n$$ (1)\n"
+        )
+        text = "\n".join(p.text for p in document.paragraphs)
+        self.assertIn("x = 1", text)
+        self.assertIn("(1)", text)
+        self.assertEqual(warnings, [])
 
     def test_amsmath_environment_survives_verbatim(self):
         document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(

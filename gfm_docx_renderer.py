@@ -61,7 +61,7 @@ class GfmDocxRenderer:
             MarkdownIt("js-default", {"breaks": True, "html": False, "linkify": True})
             .enable("linkify")
             .use(footnote_plugin)
-            .use(dollarmath_plugin)
+            .use(dollarmath_plugin, allow_digits=False)
             .use(amsmath_plugin)
         )
         for token in parser.parse(markdown):
@@ -118,8 +118,12 @@ class GfmDocxRenderer:
             return
         if token_type in {"list_item_open", "list_item_close"}:
             return
-        if token_type in {"math_block", "math_block_label", "amsmath"}:
+        if token_type in {"math_block", "amsmath"}:
             self._render_math_literal(token.content, display=True)
+            return
+        if token_type == "math_block_label":
+            self._render_math_literal(token.content, display=True)
+            self._append_equation_label(token.info)
             return
         if token_type in {"fence", "code_block"}:
             self._render_code_block(token)
@@ -338,6 +342,21 @@ class GfmDocxRenderer:
             run = self._paragraph.add_run(text)
         run.font.name = "Courier New"
         run.font.size = Pt(10)
+
+    def _append_equation_label(self, label: str) -> None:
+        """Append an equation number after its display formula, tab-separated.
+
+        Mirrors the LaTeX convention of a trailing equation number, e.g. the
+        ``(1)`` in ``$$ x = 1 $$ (1)``. Rendered as ordinary body text (not
+        monospace) in the same centred paragraph as the formula.
+        """
+        label = label.strip()
+        if not label:
+            return
+        paragraph = self.document.paragraphs[-1]
+        run = paragraph.add_run(f"\t({label})")
+        run.font.name = self.font_name
+        run.font.size = self.font_size
 
     def _render_code_block(self, token: Any) -> None:
         language = token.info.strip().split(maxsplit=1)[0] if token.info else ""
