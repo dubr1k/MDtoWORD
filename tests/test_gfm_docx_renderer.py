@@ -82,6 +82,86 @@ class GfmDocxRendererTests(unittest.TestCase):
             style = document.styles[f"Heading {level}"]
             self.assertEqual(style.font.color.rgb, RGBColor(0, 0, 0))
 
+    @staticmethod
+    def _effective_size(paragraph):
+        """Resolve rendered font size: run size wins, else the style's."""
+        run = paragraph.runs[0]
+        return run.font.size if run.font.size is not None else paragraph.style.font.size
+
+    @staticmethod
+    def _effective_bold(paragraph):
+        run = paragraph.runs[0]
+        return run.bold if run.bold is not None else paragraph.style.font.bold
+
+    @staticmethod
+    def _effective_italic(paragraph):
+        run = paragraph.runs[0]
+        return run.italic if run.italic is not None else paragraph.style.font.italic
+
+    @staticmethod
+    def _effective_font_name(paragraph):
+        run = paragraph.runs[0]
+        return run.font.name if run.font.name is not None else paragraph.style.font.name
+
+    def test_heading_levels_get_a_real_size_hierarchy(self):
+        document, _ = GfmDocxRenderer("Arial", Pt(12)).render(
+            "# H1\n\n"
+            "## H2\n\n"
+            "### H3\n\n"
+            "#### H4\n\n"
+            "##### H5\n\n"
+            "###### H6\n\n"
+            "Body paragraph.\n"
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "headings.docx"
+            document.save(str(path))
+            reopened = Document(str(path))
+
+        headings = {
+            paragraph.style.name: paragraph
+            for paragraph in reopened.paragraphs
+            if paragraph.style.name.startswith("Heading")
+        }
+        expected_pt = {1: 18, 2: 16, 3: 14, 4: 13, 5: 12, 6: 12}
+        for level, expected in expected_pt.items():
+            paragraph = headings[f"Heading {level}"]
+            self.assertEqual(
+                self._effective_size(paragraph), Pt(expected),
+                f"Heading {level} should render at {expected}pt",
+            )
+            self.assertTrue(
+                self._effective_bold(paragraph), f"Heading {level} should be bold"
+            )
+            self.assertEqual(
+                self._effective_font_name(paragraph), "Arial",
+                f"Heading {level} should keep the constructor's font",
+            )
+
+        self.assertTrue(
+            self._effective_italic(headings["Heading 6"]),
+            "Heading 6 should be italic to stay distinguishable from Heading 5",
+        )
+
+        for level in range(1, 7):
+            style = reopened.styles[f"Heading {level}"]
+            self.assertEqual(style.font.color.rgb, RGBColor(0, 0, 0))
+
+        body_paragraphs = [p for p in reopened.paragraphs if p.text == "Body paragraph."]
+        self.assertEqual(len(body_paragraphs), 1)
+        self.assertEqual(self._effective_size(body_paragraphs[0]), Pt(12))
+
+    def test_heading_scale_is_relative_to_the_base_font_size(self):
+        document, _ = GfmDocxRenderer("Arial", Pt(14)).render("# H1\n")
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "scaled-heading.docx"
+            document.save(str(path))
+            reopened = Document(str(path))
+
+        self.assertEqual(self._effective_size(reopened.paragraphs[0]), Pt(21))
+
     def test_hyperlink_is_black_and_underlined(self):
         document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
             "[сайт](https://example.com)\n"
@@ -431,6 +511,50 @@ class GfmDocxRendererTests(unittest.TestCase):
         self.assertEqual(len(warnings), 1)
         self.assertIn("Cyrillic", warnings[0])
         self.assertEqual(_equations(document.paragraphs[0]), [])
+
+    def test_english_prose_dollar_pair_survives_verbatim(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "Set $PATH and $HOME before running.\n"
+        )
+        self.assertEqual(
+            document.paragraphs[0].text, "Set $PATH and $HOME before running."
+        )
+        self.assertEqual(_equations(document.paragraphs[0]), [])
+        self.assertEqual(len(warnings), 1)
+
+    def test_english_price_range_dollar_pair_survives_verbatim(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "Prices ranged from $low to $high in Q3.\n"
+        )
+        self.assertEqual(
+            document.paragraphs[0].text,
+            "Prices ranged from $low to $high in Q3.",
+        )
+        self.assertEqual(_equations(document.paragraphs[0]), [])
+        self.assertEqual(len(warnings), 1)
+
+    def test_genuine_formula_regression_battery_still_converts(self):
+        formulas = [
+            r"$a+b$",
+            r"$x^2$",
+            r"$E = mc^2$",
+            r"$\alpha$",
+            r"$\frac{a}{b}$",
+            r"$n$",
+            r"$xy$",
+        ]
+        for formula in formulas:
+            with self.subTest(formula=formula):
+                document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+                    formula + "\n"
+                )
+                self.assertEqual(
+                    warnings, [], f"{formula} should convert without a warning"
+                )
+                self.assertEqual(
+                    len(_equations(document.paragraphs[0])), 1,
+                    f"{formula} should become a real equation",
+                )
 
     def test_bare_cyrillic_alongside_text_command_still_warns(self):
         document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(

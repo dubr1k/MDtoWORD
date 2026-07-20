@@ -55,6 +55,25 @@ _LINE_BREAK = re.compile(r"\\\\")
 # An unescaped "&" is amsmath column alignment; "\&" is a literal ampersand.
 _ALIGNMENT_MARKER = re.compile(r"(?<!\\)&")
 
+# Multiplier applied to the user's chosen body size for each heading level,
+# plus whether that level is bold/italic. Word's default template only
+# defines a size for Heading 1-2 and leaves 3-9 to inherit Normal's size
+# verbatim, and only defines bold for 1-4 -- both of which leave everything
+# from H3 down indistinguishable from body text. Every level here is forced
+# bold; level 6 is additionally italic so it stays visually distinct from
+# level 5, which shares its multiplier.
+_HEADING_SCALE: dict[int, tuple[float, bool, bool]] = {
+    1: (1.5, True, False),
+    2: (1.35, True, False),
+    3: (1.2, True, False),
+    4: (1.1, True, False),
+    5: (1.0, True, False),
+    6: (1.0, True, True),
+}
+# A single-dollar fragment with none of these is unlikely to be a real
+# formula: no LaTeX command, no super/subscript, no digit, no operator.
+_MATH_INDICATOR = re.compile(r"[\\^_0-9+\-*/=<>]")
+
 
 class GfmDocxRenderer:
     """Render a GFM token stream into a Word document."""
@@ -73,6 +92,7 @@ class GfmDocxRenderer:
         self._table_alignments: list[str | None]
         self._table_header: bool
         self._footnote_depth: int
+        self._heading_level: int | None
 
     def render(
         self, markdown: str, source_path: Path | None = None
@@ -88,6 +108,7 @@ class GfmDocxRenderer:
         self._table_header = False
         self._table_alignments = []
         self._footnote_depth = 0
+        self._heading_level = None
         self._configure_document()
 
         parser = (
@@ -114,6 +135,12 @@ class GfmDocxRenderer:
                 continue
             heading.font.color.rgb = _BLACK
             heading.font.name = self.font_name
+            scale = _HEADING_SCALE.get(level)
+            if scale is not None:
+                multiplier, bold, italic = scale
+                heading.font.size = Pt(round(self.font_size.pt * multiplier))
+                heading.font.bold = bold
+                heading.font.italic = italic
         try:
             quote = cast(ParagraphStyle, self.document.styles["Quote"])
         except KeyError:
@@ -126,6 +153,7 @@ class GfmDocxRenderer:
 
         if token_type == "heading_open":
             level = min(int(token.tag[1:]), 9)
+            self._heading_level = level
             self._paragraph = self.document.add_paragraph(style=f"Heading {level}")
             return
         if token_type == "paragraph_open":
@@ -134,7 +162,11 @@ class GfmDocxRenderer:
         if token_type == "inline":
             self._render_inline(token.children or [], source_path, token.content)
             return
-        if token_type in {"heading_close", "paragraph_close"}:
+        if token_type == "heading_close":
+            self._paragraph = None
+            self._heading_level = None
+            return
+        if token_type == "paragraph_close":
             self._paragraph = None
             return
         if token_type == "blockquote_open":
@@ -328,11 +360,26 @@ class GfmDocxRenderer:
             self._append_hyperlink(text, link_target, formatting)
             return
         run = self._paragraph.add_run(text)
-        run.bold = formatting["bold"]
-        run.italic = formatting["italic"]
+        # Direct run formatting always beats style formatting in Word, so
+        # stamping every run here -- including ones inside a heading --
+        # would flatten every heading level back to body size/font/weight
+        # regardless of what _configure_document just set on the Heading N
+        # style. Skip the stamp for a plain (non-explicit) run inside a
+        # heading and let the style through instead. Inline code must stay
+        # monospace even there, and an explicit bold/italic request from
+        # markdown (**bold**/*italic*) should still win either way.
+        in_heading = self._heading_level is not None
+        if formatting["bold"] or not in_heading:
+            run.bold = formatting["bold"]
+        if formatting["italic"] or not in_heading:
+            run.italic = formatting["italic"]
         run.font.strike = formatting["strike"]
-        run.font.name = "Courier New" if formatting["code"] else self.font_name
-        run.font.size = Pt(10) if formatting["code"] else self.font_size
+        if formatting["code"]:
+            run.font.name = "Courier New"
+            run.font.size = Pt(10)
+        elif not in_heading:
+            run.font.name = self.font_name
+            run.font.size = self.font_size
 
     def _append_hyperlink(
         self, text: str, target: str, formatting: dict[str, bool]
@@ -411,13 +458,12 @@ class GfmDocxRenderer:
                 None,
             )
             return
-        if not display and _CYRILLIC.search(_TEXT_COMMAND.sub("", formula)):
-            # Cyrillic between single dollars is far more often prose (shell
-            # variables, price ranges) than a formula; keep it verbatim and
-            # let _render_math_literal raise the "write \$" warning. Cyrillic
-            # that only appears inside \text{...} (and friends) is exempt --
-            # that is exactly how real LaTeX writes a Russian word inside a
-            # formula -- so its contents are stripped before this check.
+        if not display and self._prose_reason(formula) is not None:
+            # This reads as prose, not a formula -- a lone Cyrillic word
+            # (shell variables, price ranges) or, more generally, a plain
+            # word-adjacent fragment with no mathematical indicator at all
+            # ("$PATH and $HOME", "$low to $high"). Keep it verbatim and
+            # let _render_math_literal raise the "write \$" warning.
             self._render_math_literal(latex, display=False, markup=markup)
             return
         try:
@@ -427,6 +473,31 @@ class GfmDocxRenderer:
             self._render_math_literal(latex, display, markup=markup)
             return
         self._place_math(math_element, display)
+
+    def _prose_reason(self, latex: str) -> str | None:
+        """Why a single-dollar fragment reads as prose, or ``None`` if it doesn't.
+
+        Two independent signals both mean "this is not math, leave it
+        alone": a lone Cyrillic word (shell variables, price ranges written
+        in Russian text) or, more generally, a fragment with *no*
+        mathematical indicator whatsoever -- no backslash command, no
+        ``^``/``_``, no digit, no operator -- that still contains a plain,
+        space-separated word of two or more letters, e.g. "PATH and" or
+        "low to". A single unspaced token such as "n" or "xy" is left
+        alone even though it is all letters, since that is exactly how a
+        real formula juxtaposes variable names. Text wrapped in
+        ``\\text{...}`` (and friends) is stripped first, since that is how
+        real LaTeX writes an ordinary word inside a genuine formula.
+        """
+        stripped = _TEXT_COMMAND.sub("", latex)
+        if _CYRILLIC.search(stripped):
+            return "contains Cyrillic text"
+        if _MATH_INDICATOR.search(stripped):
+            return None
+        words = stripped.split()
+        if len(words) > 1 and any(word.isalpha() and len(word) >= 2 for word in words):
+            return "contains no mathematical symbols"
+        return None
 
     def _place_math(self, math_element: Any, display: bool) -> None:
         if display:
@@ -529,9 +600,10 @@ class GfmDocxRenderer:
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             run = paragraph.add_run(text)
         else:
-            if _CYRILLIC.search(latex):
+            reason = self._prose_reason(latex)
+            if reason is not None:
                 self.warnings.append(
-                    f'Inline math "${latex}$" contains Cyrillic text and may be '
+                    f'Inline math "${latex}$" {reason} and may be '
                     "ordinary prose rather than a formula; write a literal \"$\" "
                     'as "\\$".'
                 )
