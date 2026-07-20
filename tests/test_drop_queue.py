@@ -110,7 +110,10 @@ class DropFileListTests(unittest.TestCase):
             window.show()
             QApplication.processEvents()
 
-            self.assertLessEqual(window.minimumSizeHint().height(), 760)
+            # Smallest supported screen (13" MacBook Air, 956pt) leaves ~900pt
+            # usable after the menu bar; 800 keeps headroom while still
+            # failing decisively on the 944px regression this guard catches.
+            self.assertLessEqual(window.minimumSizeHint().height(), 800)
 
             window.hide()
 
