@@ -188,6 +188,42 @@ class DropFileListTests(unittest.TestCase):
 
             window.hide()
 
+    def test_progress_reserves_space_while_hidden(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(
+                str(Path(directory) / "theme.ini"),
+                QSettings.Format.IniFormat,
+            )
+            window = ConverterGUI(theme_manager=ThemeManager(settings=settings))
+
+            self.assertTrue(window.progress.isHidden())
+            self.assertTrue(window.progress.sizePolicy().retainSizeWhenHidden())
+
+    def test_queue_buttons_follow_queue_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(
+                str(Path(directory) / "theme.ini"),
+                QSettings.Format.IniFormat,
+            )
+            window = ConverterGUI(theme_manager=ThemeManager(settings=settings))
+            md_file = Path(directory) / "input.md"
+            md_file.write_text("# hi", encoding="utf-8")
+
+            self.assertFalse(window.clear_button.isEnabled())
+            self.assertFalse(window.remove_button.isEnabled())
+
+            window._add_sources([str(md_file)])
+            self.assertTrue(window.clear_button.isEnabled())
+            self.assertFalse(window.remove_button.isEnabled())
+            self.assertIn("В очереди: 1", window.status_label.text())
+
+            window.files_listbox.setCurrentRow(0)
+            self.assertTrue(window.remove_button.isEnabled())
+
+            window._clear_files()
+            self.assertFalse(window.clear_button.isEnabled())
+            self.assertFalse(window.remove_button.isEnabled())
+
 
 if __name__ == "__main__":
     unittest.main()

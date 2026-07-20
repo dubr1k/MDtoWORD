@@ -225,7 +225,8 @@ class ConverterGUI(QMainWindow):
                 "files_tab": "Файлы", "text_tab": "Текст", "text_label": "Введите Markdown-текст",
                 "output": "Место сохранения", "output_auto": "Рядом с исходными файлами",
                 "choose_output": "Выбрать папку", "reset_output": "Сбросить",
-                "ready": "Готово к конвертации", "converting": "Конвертация: {filename}",
+                "ready": "Готово к конвертации", "queued": "В очереди: {count}",
+                "converting": "Конвертация: {filename}",
                 "finished": "Конвертация завершена", "convert": "Конвертировать",
                 "toggle_md": "Режим: MD → Word", "toggle_word": "Режим: Word → MD",
                 "theme_dark": "Тёмная тема · Переключить на светлую",
@@ -244,7 +245,8 @@ class ConverterGUI(QMainWindow):
                 "files_tab": "Files", "text_tab": "Text", "text_label": "Enter Markdown text",
                 "output": "Save location", "output_auto": "Next to each source file",
                 "choose_output": "Choose folder", "reset_output": "Reset",
-                "ready": "Ready to convert", "converting": "Converting: {filename}",
+                "ready": "Ready to convert", "queued": "In queue: {count}",
+                "converting": "Converting: {filename}",
                 "finished": "Conversion finished", "convert": "Convert",
                 "toggle_md": "Mode: MD → Word", "toggle_word": "Mode: Word → MD",
                 "theme_dark": "Dark theme · Switch to light",
@@ -337,6 +339,7 @@ class ConverterGUI(QMainWindow):
         files_layout.addLayout(actions)
         self.files_listbox = DropFileList()
         self.files_listbox.paths_dropped.connect(self._add_sources)
+        self.files_listbox.itemSelectionChanged.connect(self._update_queue_buttons)
         self.files_listbox.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.files_listbox.setMinimumHeight(90)
         files_layout.addWidget(self.files_listbox, 1)
@@ -376,6 +379,9 @@ class ConverterGUI(QMainWindow):
         layout.addWidget(self.output_group)
 
         self.progress = QProgressBar()
+        policy = self.progress.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        self.progress.setSizePolicy(policy)
         self.progress.hide()
         layout.addWidget(self.progress)
         self.status_label = QLabel()
@@ -467,10 +473,18 @@ class ConverterGUI(QMainWindow):
         for source in self.selected_files:
             self.files_listbox.addItem(f"{source.name}\n{source.parent}")
         count = len(self.selected_files)
-        self.status_label.setText(self._text["ready"] if not count else f"{count} · {self._text['ready']}")
+        if count:
+            self.status_label.setText(self._text["queued"].format(count=count))
+        else:
+            self.status_label.setText(self._text["ready"])
         self.convert_button.setText(
             self._text["convert"] if not count else f"{self._text['convert']} ({count})"
         )
+        self._update_queue_buttons()
+
+    def _update_queue_buttons(self) -> None:
+        self.clear_button.setEnabled(bool(self.selected_files))
+        self.remove_button.setEnabled(bool(self.files_listbox.selectedItems()))
 
     def _on_font_change(self, font_name: str) -> None:
         if isinstance(self.converter, MarkdownToWordConverter):
