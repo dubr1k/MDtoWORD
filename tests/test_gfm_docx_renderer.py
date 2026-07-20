@@ -171,6 +171,40 @@ class GfmDocxRendererTests(unittest.TestCase):
         text = "\n".join(p.text for p in document.paragraphs)
         self.assertIn(r"G\frac{m_1 m_2}{r^2}", text)
 
+    def test_blank_line_does_not_widen_display_math(self):
+        document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "Первый абзац.\n"
+            "\n"
+            "$$\n"
+            "\n"
+            "Второй абзац, ничего общего с формулой.\n"
+            "\n"
+            "$$\n"
+            "\n"
+            "Третий абзац.\n"
+        )
+        middle_text = "Второй абзац, ничего общего с формулой."
+        matches = [p for p in document.paragraphs if middle_text in p.text]
+        self.assertTrue(matches, "middle paragraph text did not survive verbatim")
+        middle_paragraph = matches[0]
+        self.assertTrue(middle_paragraph.runs, "middle paragraph has no runs")
+        for run in middle_paragraph.runs:
+            self.assertNotEqual(run.font.name, "Courier New")
+
+    def test_stray_dollar_pair_with_cyrillic_content_warns(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "Переменные $HOME и $PATH в шелле."
+        )
+        self.assertEqual(len(warnings), 1)
+        self.assertIn(r"\$", warnings[0])
+        self.assertIn("HOME", warnings[0])
+
+    def test_genuine_formula_does_not_warn(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "$E = mc^2$"
+        )
+        self.assertEqual(warnings, [])
+
     def test_footnote_paragraphs_are_justified_like_body_lists(self):
         document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
             "1. пункт списка\n\n"

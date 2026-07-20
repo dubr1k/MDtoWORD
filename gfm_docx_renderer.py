@@ -20,6 +20,7 @@ from mdit_py_plugins.footnote import footnote_plugin
 
 
 _TASK_PREFIX = re.compile(r"^\[([ xX])\]\s+")
+_CYRILLIC = re.compile(r"[Ѐ-ӿ]")
 _BLACK = RGBColor(0, 0, 0)
 
 
@@ -61,7 +62,7 @@ class GfmDocxRenderer:
             MarkdownIt("js-default", {"breaks": True, "html": False, "linkify": True})
             .enable("linkify")
             .use(footnote_plugin)
-            .use(dollarmath_plugin, allow_digits=False)
+            .use(dollarmath_plugin, allow_digits=False, allow_blank_lines=False)
             .use(amsmath_plugin)
         )
         for token in parser.parse(markdown):
@@ -337,6 +338,12 @@ class GfmDocxRenderer:
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             run = paragraph.add_run(text)
         else:
+            if _CYRILLIC.search(latex):
+                self.warnings.append(
+                    f'Inline math "${latex}$" contains Cyrillic text and may be '
+                    "ordinary prose rather than a formula; write a literal \"$\" "
+                    'as "\\$".'
+                )
             if self._paragraph is None:
                 self._paragraph = self._new_paragraph()
             run = self._paragraph.add_run(text)
