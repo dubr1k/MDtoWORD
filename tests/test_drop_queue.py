@@ -227,6 +227,115 @@ class DropFileListTests(unittest.TestCase):
             self.assertFalse(window.clear_button.isEnabled())
             self.assertFalse(window.remove_button.isEnabled())
 
+    def test_batch_conversion_survives_mid_run_queue_mutation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(
+                str(Path(directory) / "theme.ini"),
+                QSettings.Format.IniFormat,
+            )
+            window = ConverterGUI(theme_manager=ThemeManager(settings=settings))
+            a_md = Path(directory) / "a.md"
+            b_md = Path(directory) / "b.md"
+            a_md.write_text("# a", encoding="utf-8")
+            b_md.write_text("# b", encoding="utf-8")
+            window._add_sources([str(a_md)])
+
+            original_convert_file = window.converter.convert_file
+            calls: list[Path] = []
+
+            def mutate_then_convert(source, output):
+                calls.append(source)
+                if len(calls) == 1:
+                    window.selected_files.append(b_md.resolve())
+                return original_convert_file(source, output)
+
+            with patch.object(
+                window.converter, "convert_file", side_effect=mutate_then_convert
+            ), patch("md_to_word_converter.QMessageBox.information") as mock_info, patch(
+                "md_to_word_converter.QMessageBox.warning"
+            ) as mock_warning:
+                window._convert_files()
+
+            self.assertEqual(calls, [a_md.resolve()])
+            self.assertTrue((Path(directory) / "a.docx").exists())
+            self.assertFalse((Path(directory) / "b.docx").exists())
+            self.assertEqual(mock_info.call_count, 1)
+            self.assertEqual(mock_warning.call_count, 0)
+
+    def test_batch_conversion_disables_queue_controls_during_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(
+                str(Path(directory) / "theme.ini"),
+                QSettings.Format.IniFormat,
+            )
+            window = ConverterGUI(theme_manager=ThemeManager(settings=settings))
+            a_md = Path(directory) / "a.md"
+            b_md = Path(directory) / "b.md"
+            a_md.write_text("# a", encoding="utf-8")
+            b_md.write_text("# b", encoding="utf-8")
+            window._add_sources([str(a_md), str(b_md)])
+
+            original_convert_file = window.converter.convert_file
+            mid_run_states = []
+
+            def record_then_convert(source, output):
+                mid_run_states.append(
+                    {
+                        "convert_button": window.convert_button.isEnabled(),
+                        "files_listbox": window.files_listbox.isEnabled(),
+                        "add_files_button": window.add_files_button.isEnabled(),
+                        "add_folder_button": window.add_folder_button.isEnabled(),
+                        "remove_button": window.remove_button.isEnabled(),
+                        "clear_button": window.clear_button.isEnabled(),
+                        "drop_hint": window.drop_hint.isEnabled(),
+                        "accept_drops": window.acceptDrops(),
+                    }
+                )
+                return original_convert_file(source, output)
+
+            with patch.object(
+                window.converter, "convert_file", side_effect=record_then_convert
+            ), patch("md_to_word_converter.QMessageBox.information") as mock_info, patch(
+                "md_to_word_converter.QMessageBox.warning"
+            ) as mock_warning:
+                window._convert_files()
+
+            self.assertEqual(len(mid_run_states), 2)
+            for state in mid_run_states:
+                self.assertFalse(state["accept_drops"])
+                self.assertFalse(any(value for key, value in state.items() if key != "accept_drops"))
+            self.assertEqual(mock_info.call_count, 1)
+
+    def test_batch_conversion_restores_ui_state_when_finished(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(
+                str(Path(directory) / "theme.ini"),
+                QSettings.Format.IniFormat,
+            )
+            window = ConverterGUI(theme_manager=ThemeManager(settings=settings))
+            a_md = Path(directory) / "a.md"
+            a_md.write_text("# a", encoding="utf-8")
+            window._add_sources([str(a_md)])
+
+            with patch("md_to_word_converter.QMessageBox.information") as mock_info, patch(
+                "md_to_word_converter.QMessageBox.warning"
+            ) as mock_warning:
+                window._convert_files()
+
+            self.assertTrue(window.progress.isHidden())
+            self.assertTrue(window.convert_button.isEnabled())
+            self.assertTrue(window.files_listbox.isEnabled())
+            self.assertTrue(window.add_files_button.isEnabled())
+            self.assertTrue(window.add_folder_button.isEnabled())
+            self.assertTrue(window.drop_hint.isEnabled())
+            self.assertTrue(window.acceptDrops())
+            self.assertEqual(window.clear_button.isEnabled(), bool(window.selected_files))
+            self.assertEqual(
+                window.remove_button.isEnabled(),
+                bool(window.files_listbox.selectedItems()),
+            )
+            self.assertEqual(mock_info.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

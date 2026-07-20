@@ -541,33 +541,53 @@ class ConverterGUI(QMainWindow):
             return
 
         suffix = ".docx" if self.current_converter_type == "md_to_word" else ".md"
-        outputs = resolve_output_paths(self.selected_files, self.output_directory, suffix)
-        self.progress.show()
-        self.progress.setRange(0, len(self.selected_files))
-        success_count = 0
-        errors: list[str] = []
-        warnings: list[str] = []
-        for index, source in enumerate(self.selected_files, start=1):
-            self.status_label.setText(self._text["converting"].format(filename=source.name))
-            QApplication.processEvents()
-            success, message = self.converter.convert_file(source, outputs[source])
-            if success:
-                success_count += 1
-                if "Warnings:" in message:
-                    warnings.append(f"{source.name}: {message.split('Warnings:', 1)[1].strip()}")
-            else:
-                errors.append(f"{source.name}: {message}")
-            self.progress.setValue(index)
-            QApplication.processEvents()
+        queue = list(self.selected_files)
+        outputs = resolve_output_paths(queue, self.output_directory, suffix)
 
-        details = errors + warnings
-        result = self._text["result"].format(success=success_count, errors=len(errors))
-        if details:
-            QMessageBox.warning(self, self._text["errors"], result + "\n\n" + "\n".join(details))
-        else:
-            QMessageBox.information(self, self.windowTitle(), result)
-        self.status_label.setText(self._text["finished"])
-        self.progress.hide()
+        lockable_widgets = (
+            self.convert_button,
+            self.files_listbox,
+            self.add_files_button,
+            self.add_folder_button,
+            self.remove_button,
+            self.clear_button,
+            self.drop_hint,
+        )
+        for widget in lockable_widgets:
+            widget.setEnabled(False)
+        self.setAcceptDrops(False)
+        try:
+            self.progress.show()
+            self.progress.setRange(0, len(queue))
+            success_count = 0
+            errors: list[str] = []
+            warnings: list[str] = []
+            for index, source in enumerate(queue, start=1):
+                self.status_label.setText(self._text["converting"].format(filename=source.name))
+                QApplication.processEvents()
+                success, message = self.converter.convert_file(source, outputs[source])
+                if success:
+                    success_count += 1
+                    if "Warnings:" in message:
+                        warnings.append(f"{source.name}: {message.split('Warnings:', 1)[1].strip()}")
+                else:
+                    errors.append(f"{source.name}: {message}")
+                self.progress.setValue(index)
+                QApplication.processEvents()
+
+            details = errors + warnings
+            result = self._text["result"].format(success=success_count, errors=len(errors))
+            if details:
+                QMessageBox.warning(self, self._text["errors"], result + "\n\n" + "\n".join(details))
+            else:
+                QMessageBox.information(self, self.windowTitle(), result)
+            self.status_label.setText(self._text["finished"])
+        finally:
+            self.progress.hide()
+            self.setAcceptDrops(True)
+            for widget in lockable_widgets:
+                widget.setEnabled(True)
+            self._update_queue_buttons()
 
     def _convert_text(self) -> None:
         if not isinstance(self.converter, MarkdownToWordConverter):
