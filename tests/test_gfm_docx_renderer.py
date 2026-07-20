@@ -108,6 +108,16 @@ class GfmDocxRendererTests(unittest.TestCase):
         self.assertIn("tblBorders", table_xml)
         for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
             self.assertIn(f"w:{edge}", table_xml)
+        tbl_pr = document.tables[0]._tbl.tblPr
+        child_names = [child.tag.rsplit("}", 1)[-1] for child in tbl_pr]
+        self.assertIn("tblBorders", child_names)
+        self.assertIn("tblLook", child_names)
+        self.assertLess(
+            child_names.index("tblBorders"),
+            child_names.index("tblLook"),
+            "w:tblBorders must precede w:tblLook in the tblPr child sequence "
+            "per the OOXML CT_TblPrBase schema order",
+        )
 
     def test_table_respects_markdown_column_alignment(self):
         document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(

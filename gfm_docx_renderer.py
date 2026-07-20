@@ -378,4 +378,13 @@ class GfmDocxRenderer:
             element.set(qn("w:space"), "0")
             element.set(qn("w:color"), "000000")
             borders.append(element)
-        table._tbl.tblPr.append(borders)
+        table._tbl.tblPr.insert_element_before(
+            borders,
+            "w:shd",
+            "w:tblLayout",
+            "w:tblCellMar",
+            "w:tblLook",
+            "w:tblCaption",
+            "w:tblDescription",
+            "w:tblPrChange",
+        )
