@@ -74,24 +74,60 @@ _BOLD_UPRIGHT_STYLE = {"mathbf"}
 _BOLD_ITALIC_STYLE = {"boldsymbol", "bm"}
 _ITALIC_STYLE = {"mathit"}
 
+# Big operators.  Each takes optional `_`/`^` limits and then swallows the
+# rest of the enclosing group as its operand.
+_NARY = {
+    "sum": "∑", "prod": "∏", "coprod": "∐",
+    "int": "∫", "iint": "∬", "iiint": "∭", "oint": "∮",
+    "bigcup": "⋃", "bigcap": "⋂", "bigoplus": "⨁",
+    "bigotimes": "⨂", "bigvee": "⋁", "bigwedge": "⋀",
+}
+
+# Integrals keep their limits beside the sign; every other big operator
+# stacks them above and below.
+_INTEGRAL_CHARACTERS = {"∫", "∬", "∭", "∮"}
+
+# Operators whose subscript sits underneath rather than beside them.
+_LIMIT_OPERATORS = {"lim": "lim", "limsup": "lim sup", "liminf": "lim inf"}
+
+# Combining marks: each one composes with the character it follows.
+_ACCENTS = {
+    "hat": "̂", "widehat": "̂", "tilde": "̃",
+    "widetilde": "̃", "bar": "̄", "vec": "⃗",
+    "dot": "̇", "ddot": "̈", "acute": "́", "grave": "̀",
+    "check": "̌", "breve": "̆",
+}
+
+_MATRIX_DELIMITERS = {
+    "matrix": ("", ""), "pmatrix": ("(", ")"), "bmatrix": ("[", "]"),
+    "Bmatrix": ("{", "}"), "vmatrix": ("|", "|"), "Vmatrix": ("‖", "‖"),
+    "cases": ("{", ""),
+}
+
+# What may follow `\left` and `\right`.  `.` is LaTeX's "no delimiter here",
+# which OMML spells as an empty begChr/endChr.
+_DELIMITER_CHARACTERS = {"(": "(", ")": ")", "[": "[", "]": "]",
+                         "|": "|", "/": "/", ".": ""}
+_DELIMITER_COMMANDS = {
+    "{": "{", "}": "}", "|": "‖", "backslash": "\\",
+    "lbrace": "{", "rbrace": "}", "langle": "⟨", "rangle": "⟩",
+    "lfloor": "⌊", "rfloor": "⌋", "lceil": "⌈", "rceil": "⌉",
+    "vert": "|", "Vert": "‖", "lvert": "|", "rvert": "|",
+    "lVert": "‖", "rVert": "‖",
+}
+
+_ROW_SEPARATOR = ("command", "\\\\")
+_END_COMMAND = ("command", "\\end")
+_RIGHT_COMMAND = ("command", "\\right")
+
 # Recognised, but deliberately not implemented here.  A later task adds these;
 # until then they must fail loudly rather than be dropped or mis-rendered.
 _NOT_YET = {
-    "sum": "big operator", "prod": "big operator", "coprod": "big operator",
-    "bigcup": "big operator", "bigcap": "big operator",
-    "int": "integral", "iint": "integral", "iiint": "integral",
-    "oint": "integral",
-    "lim": "limit", "limsup": "limit", "liminf": "limit",
-    "left": "delimiter", "right": "delimiter",
-    "begin": "environment", "end": "environment",
     "matrix": "matrix", "pmatrix": "matrix", "bmatrix": "matrix",
-    "vmatrix": "matrix", "Vmatrix": "matrix", "array": "matrix",
-    "cases": "matrix", "substack": "matrix",
-    "binom": "binomial", "choose": "binomial",
+    "Bmatrix": "matrix", "vmatrix": "matrix", "Vmatrix": "matrix",
+    "array": "matrix", "cases": "matrix", "substack": "matrix",
+    "choose": "binomial",
     "over": "fraction", "atop": "fraction",
-    "hat": "accent", "widehat": "accent", "bar": "accent", "vec": "accent",
-    "tilde": "accent", "widetilde": "accent", "dot": "accent",
-    "ddot": "accent", "overline": "accent", "underline": "accent",
     "\\": "line break",
 }
 
@@ -205,6 +241,87 @@ def _script(base: list[Any], sub: list[Any] | None, sup: list[Any] | None) -> An
     return element
 
 
+def _property(tag: str, name: str, value: str) -> Any:
+    """A properties element holding one `m:val` child, e.g. <m:accPr><m:chr/>."""
+    properties = _el(tag)
+    child = _el(name)
+    child.set(qn("m:val"), value)
+    properties.append(child)
+    return properties
+
+
+def _nary(character: str, sub: list[Any] | None, sup: list[Any] | None,
+          body: list[Any]) -> Any:
+    """<m:nary>: a big operator with its limits and its operand."""
+    nary = _el("nary")
+    properties = _property("naryPr", "chr", character)
+    limit_location = _el("limLoc")
+    limit_location.set(
+        qn("m:val"),
+        "subSup" if character in _INTEGRAL_CHARACTERS else "undOvr",
+    )
+    properties.append(limit_location)
+    # Without these Word draws an empty placeholder box where the missing
+    # limit would go.
+    for missing, tag in ((sub is None, "subHide"), (sup is None, "supHide")):
+        if missing:
+            hide = _el(tag)
+            hide.set(qn("m:val"), "1")
+            properties.append(hide)
+    nary.append(properties)
+    nary.append(_wrap("sub", sub or []))
+    nary.append(_wrap("sup", sup or []))
+    nary.append(_wrap("e", body))
+    return nary
+
+
+def _delimiter(begin: str, end: str, children: list[Any]) -> Any:
+    """<m:d>: a fenced group. An empty `begin`/`end` means "no fence"."""
+    delimiter = _el("d")
+    properties = _el("dPr")
+    for tag, value in (("begChr", begin), ("endChr", end)):
+        child = _el(tag)
+        child.set(qn("m:val"), value)
+        properties.append(child)
+    delimiter.append(properties)
+    delimiter.append(_wrap("e", children))
+    return delimiter
+
+
+def _accent(character: str, base: list[Any]) -> Any:
+    accent = _el("acc")
+    accent.append(_property("accPr", "chr", character))
+    accent.append(_wrap("e", base))
+    return accent
+
+
+def _overline(base: list[Any], *, position: str = "top") -> Any:
+    """<m:bar>: a rule above (`top`) or below (`bot`) the base."""
+    bar = _el("bar")
+    bar.append(_property("barPr", "pos", position))
+    bar.append(_wrap("e", base))
+    return bar
+
+
+def _limit_low(base: list[Any], limit: list[Any]) -> Any:
+    element = _el("limLow")
+    element.append(_wrap("e", base))
+    element.append(_wrap("lim", limit))
+    return element
+
+
+def _matrix(rows: list[list[list[Any]]]) -> Any:
+    """<m:m>: rows of cells. Short rows are padded so Word sees a rectangle."""
+    width = max((len(row) for row in rows), default=0)
+    matrix = _el("m")
+    for row in rows:
+        row_element = _el("mr")
+        for column in range(width):
+            row_element.append(_wrap("e", row[column] if column < len(row) else []))
+        matrix.append(row_element)
+    return matrix
+
+
 # --------------------------------------------------------------------------
 # Tokenizer
 # --------------------------------------------------------------------------
@@ -276,7 +393,7 @@ def _parse_sequence(tokens: list, index: int, stop: Stop = None,
             break
         if stop is not None and stop(kind, value):
             break
-        atom, index = _parse_atom(tokens, index, style)
+        atom, index = _parse_atom(tokens, index, style, stop)
         sub, sup, index = _read_scripts(tokens, index, style)
         if sub is None and sup is None:
             elements.extend(atom)
@@ -391,14 +508,20 @@ def _read_scripts(tokens: list, index: int, style: Optional[str] = None) -> tupl
             return sub, sup, index
 
 
-def _parse_atom(tokens: list, index: int, style: Optional[str] = None) -> tuple:
-    """Parse one atom: a group, a character, or a command. Returns (elements, index)."""
+def _parse_atom(tokens: list, index: int, style: Optional[str] = None,
+                stop: Stop = None) -> tuple:
+    """Parse one atom: a group, a character, or a command. Returns (elements, index).
+
+    `stop` is the terminator of the sequence this atom belongs to.  Only the
+    n-ary operators need it: their operand runs to the end of the enclosing
+    construct, so they must know where that end is.
+    """
     kind, value = tokens[index]
     bold = style in ("bold", "bolditalic")
     if kind == "open":
         return _parse_group(tokens, index, style)
     if kind == "command":
-        return _parse_command(tokens, index, style)
+        return _parse_command(tokens, index, style, stop)
     if kind == "letter":
         if style == "bold":
             return [_run(value, upright=True, bold=True)], index + 1
@@ -418,7 +541,91 @@ def _parse_atom(tokens: list, index: int, style: Optional[str] = None) -> tuple:
     raise UnsupportedLatexError(f"Could not read {value!r} in the formula")
 
 
-def _parse_command(tokens: list, index: int, style: Optional[str] = None) -> tuple:
+def _read_delimiter(tokens: list, index: int, command: str) -> tuple:
+    """Read the fence character that follows `\\left` or `\\right`.
+
+    Returns (character, index); the character is "" for `.`, LaTeX's
+    "there is no fence on this side".
+    """
+    index = _skip_space(tokens, index)
+    if index >= len(tokens):
+        raise UnsupportedLatexError(
+            f"\\{command} is missing the delimiter that should follow it"
+        )
+    kind, value = tokens[index]
+    if kind == "command":
+        candidate = _DELIMITER_COMMANDS.get(value[1:])
+        if candidate is None:
+            raise UnsupportedLatexError(
+                f"Not a delimiter after \\{command}: {value}"
+            )
+        return candidate, index + 1
+    if value in _DELIMITER_CHARACTERS:
+        return _DELIMITER_CHARACTERS[value], index + 1
+    raise UnsupportedLatexError(f"Not a delimiter after \\{command}: {value!r}")
+
+
+def _parse_environment(tokens: list, index: int,
+                       style: Optional[str] = None) -> tuple:
+    """Parse `\\begin{env} ... \\end{env}`. Returns (elements, index)."""
+    environment, index = _read_raw_group(tokens, index)
+    if environment not in _MATRIX_DELIMITERS:
+        raise UnsupportedLatexError(
+            f"LaTeX environment is not supported: \\begin{{{environment}}}"
+        )
+    rows, index = _read_matrix_rows(tokens, index, environment, style)
+    begin, end = _MATRIX_DELIMITERS[environment]
+    matrix = _matrix(rows)
+    if begin or end:
+        return [_delimiter(begin, end, [matrix])], index
+    return [matrix], index
+
+
+def _read_matrix_rows(tokens: list, index: int, environment: str,
+                      style: Optional[str] = None) -> tuple:
+    """Read cells split by `&` and rows split by `\\\\`, up to `\\end{env}`."""
+
+    def stop(kind: str, value: str) -> bool:
+        return kind == "amp" or (kind, value) in (_ROW_SEPARATOR, _END_COMMAND)
+
+    rows: list = []
+    row: list = []
+    while True:
+        cell, index = _parse_sequence(tokens, index, stop=stop, style=style)
+        row.append(cell)
+        if index >= len(tokens):
+            raise UnsupportedLatexError(
+                f"\\begin{{{environment}}} without a matching \\end"
+            )
+        kind, value = tokens[index]
+        if kind == "amp":
+            index += 1
+            continue
+        if (kind, value) == _ROW_SEPARATOR:
+            rows.append(row)
+            row = []
+            index += 1
+            continue
+        if (kind, value) != _END_COMMAND:  # a stray '}' closed us early
+            raise UnsupportedLatexError(
+                f"\\begin{{{environment}}} without a matching \\end"
+            )
+        closing, index = _read_raw_group(tokens, index + 1)
+        if closing != environment:
+            raise UnsupportedLatexError(
+                f"\\begin{{{environment}}} is closed by \\end{{{closing}}}"
+            )
+        rows.append(row)
+        break
+    # A final `\\` before `\end` ends the last row rather than starting an
+    # empty one.
+    if len(rows) > 1 and rows[-1] == [[]]:
+        rows.pop()
+    return rows, index
+
+
+def _parse_command(tokens: list, index: int, style: Optional[str] = None,
+                   stop: Stop = None) -> tuple:
     """Parse one `\\command` and its arguments. Returns (elements, index)."""
     name = tokens[index][1][1:]
     index += 1
@@ -452,8 +659,61 @@ def _parse_command(tokens: list, index: int, style: Optional[str] = None) -> tup
         elements, index = _parse_group(tokens, index, "italic")
         return elements, index
 
-    # Checked before the symbol table so a Task 3 construct never silently
-    # degrades into something that merely looks plausible.
+    if name in _NARY:
+        # The limits bind to the operator itself; everything after them, up
+        # to the end of the enclosing construct, is the operand.
+        sub, sup, index = _read_scripts(tokens, index, style)
+        body, index = _parse_sequence(tokens, index, stop=stop, style=style)
+        return [_nary(_NARY[name], sub, sup, body)], index
+
+    if name in _LIMIT_OPERATORS:
+        base = [_run(_LIMIT_OPERATORS[name], upright=True, bold=bold)]
+        sub, sup, index = _read_scripts(tokens, index, style)
+        if sup is not None:
+            raise UnsupportedLatexError(
+                f"\\{name} takes a lower limit only, not a superscript"
+            )
+        if sub is None:
+            return base, index
+        return [_limit_low(base, sub)], index
+
+    if name in _ACCENTS:
+        base, index = _parse_group(tokens, index, style)
+        return [_accent(_ACCENTS[name], base)], index
+
+    if name in ("overline", "underline"):
+        base, index = _parse_group(tokens, index, style)
+        position = "top" if name == "overline" else "bot"
+        return [_overline(base, position=position)], index
+
+    if name == "binom":
+        top, index = _parse_group(tokens, index, style)
+        bottom, index = _parse_group(tokens, index, style)
+        return [_delimiter("(", ")", [_fraction(top, bottom, no_bar=True)])], index
+
+    if name == "left":
+        begin, index = _read_delimiter(tokens, index, "left")
+        children, index = _parse_sequence(
+            tokens, index,
+            stop=lambda kind, value: (kind, value) == _RIGHT_COMMAND,
+            style=style,
+        )
+        if index >= len(tokens) or tokens[index] != _RIGHT_COMMAND:
+            raise UnsupportedLatexError("\\left without a matching \\right")
+        end, index = _read_delimiter(tokens, index + 1, "right")
+        return [_delimiter(begin, end, children)], index
+
+    if name == "right":
+        raise UnsupportedLatexError("\\right without a matching \\left")
+
+    if name == "begin":
+        return _parse_environment(tokens, index, style)
+
+    if name == "end":
+        raise UnsupportedLatexError("\\end without a matching \\begin")
+
+    # Checked before the symbol table so an unimplemented construct never
+    # silently degrades into something that merely looks plausible.
     if name in _NOT_YET:
         raise UnsupportedLatexError(
             f"LaTeX {_NOT_YET[name]} is not supported yet: \\{name}"
