@@ -16,21 +16,6 @@ from typing import Any, Callable, Optional
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
-# python-docx registers a custom lxml element class per known tag, but it knows
-# no `m:` (math) tags, so those come back as bare `lxml.etree._Element` without
-# the `.xml` accessor used for inspection and tests.  Registering
-# BaseOxmlElement as the namespace default upgrades every `m:` element we build.
-# The equation itself serialises correctly either way, so a python-docx version
-# that moves these internals costs us `.xml` but not correctness.
-try:  # pragma: no cover - depends on python-docx internals
-    from docx.oxml.ns import nsmap as _nsmap
-    from docx.oxml.parser import element_class_lookup as _element_class_lookup
-    from docx.oxml.xmlchemy import BaseOxmlElement as _BaseOxmlElement
-
-    _element_class_lookup.get_namespace(_nsmap["m"])[None] = _BaseOxmlElement
-except Exception:  # pragma: no cover - never fatal
-    pass
-
 
 class UnsupportedLatexError(ValueError):
     """Raised when a LaTeX construct has no OMML equivalent here."""
@@ -85,7 +70,8 @@ _UPRIGHT_FUNCTIONS = {
 
 _FRACTIONS = {"frac", "dfrac", "tfrac"}
 _UPRIGHT_TEXT = {"text", "textrm", "textnormal", "mathrm", "operatorname"}
-_BOLD_STYLE = {"mathbf", "boldsymbol", "bm"}
+_BOLD_UPRIGHT_STYLE = {"mathbf"}
+_BOLD_ITALIC_STYLE = {"boldsymbol", "bm"}
 _ITALIC_STYLE = {"mathit"}
 
 # Recognised, but deliberately not implemented here.  A later task adds these;
@@ -124,7 +110,6 @@ _TOKEN_RE = re.compile(
     re.VERBOSE,
 )
 
-Token = "tuple[str, str]"
 Stop = Optional[Callable[[str, str], bool]]
 
 
@@ -167,7 +152,7 @@ def _run(text: str, *, italic: bool = False, upright: bool = False,
     return run
 
 
-def _wrap(tag: str, children: list) -> Any:
+def _wrap(tag: str, children: list[Any]) -> Any:
     """A container element such as <m:num>, <m:den>, <m:e>, <m:sup>, <m:sub>."""
     element = _el(tag)
     for child in children:
@@ -175,7 +160,7 @@ def _wrap(tag: str, children: list) -> Any:
     return element
 
 
-def _fraction(numerator: list, denominator: list, *, no_bar: bool = False) -> Any:
+def _fraction(numerator: list[Any], denominator: list[Any], *, no_bar: bool = False) -> Any:
     fraction = _el("f")
     if no_bar:
         properties = _el("fPr")
@@ -188,7 +173,7 @@ def _fraction(numerator: list, denominator: list, *, no_bar: bool = False) -> An
     return fraction
 
 
-def _radical(degree: Optional[list], radicand: list) -> Any:
+def _radical(degree: list[Any] | None, radicand: list[Any]) -> Any:
     radical = _el("rad")
     properties = _el("radPr")
     if degree is None:
@@ -201,7 +186,7 @@ def _radical(degree: Optional[list], radicand: list) -> Any:
     return radical
 
 
-def _script(base: list, sub: Optional[list], sup: Optional[list]) -> Any:
+def _script(base: list[Any], sub: list[Any] | None, sup: list[Any] | None) -> Any:
     """<m:sSub>, <m:sSup> or <m:sSubSup> depending on which scripts are present."""
     if sub is not None and sup is not None:
         element = _el("sSubSup")
@@ -270,7 +255,8 @@ def _skip_space(tokens: list, index: int) -> int:
 
 # --------------------------------------------------------------------------
 # Parser.  Recursive descent over the token list, producing OMML elements.
-# `style` is None, "bold" or "italic" and comes from \mathbf / \mathit.
+# `style` is None, "bold" (upright, \mathbf), "bolditalic" (\boldsymbol / \bm)
+# or "italic" (\mathit).
 # --------------------------------------------------------------------------
 
 
@@ -303,6 +289,14 @@ def _parse_group(tokens: list, index: int, style: Optional[str] = None) -> tuple
     """Read a `{...}` group, or exactly one atom if there is no brace.
 
     This is what the arguments of \\frac, \\sqrt, `^` and `_` all need.
+
+    TeX's own grouping rule treats an unbraced argument as exactly one
+    token: `\\frac12x` means `\\frac{1}{2}x`, and `x^12` superscripts only
+    the `1`.  Our tokenizer merges consecutive digits into a single
+    `number` token (needed so `\\frac{12}{x}` and plain `12 + 3` read the
+    whole literal), so here -- the unbraced path only -- a multi-digit
+    number is split: its first character is consumed as the atom and the
+    rest is pushed back onto the token stream as a new pending token.
     """
     index = _skip_space(tokens, index)
     if index >= len(tokens):
@@ -312,6 +306,10 @@ def _parse_group(tokens: list, index: int, style: Optional[str] = None) -> tuple
         if index >= len(tokens) or tokens[index][0] != "close":
             raise UnsupportedLatexError("Unbalanced braces: unclosed '{'")
         return elements, index + 1
+    kind, value = tokens[index]
+    if kind == "number" and len(value) > 1:
+        tokens[index] = ("number", value[0])
+        tokens.insert(index + 1, ("number", value[1:]))
     return _parse_atom(tokens, index, style)
 
 
@@ -396,12 +394,14 @@ def _read_scripts(tokens: list, index: int, style: Optional[str] = None) -> tupl
 def _parse_atom(tokens: list, index: int, style: Optional[str] = None) -> tuple:
     """Parse one atom: a group, a character, or a command. Returns (elements, index)."""
     kind, value = tokens[index]
-    bold = style == "bold"
+    bold = style in ("bold", "bolditalic")
     if kind == "open":
         return _parse_group(tokens, index, style)
     if kind == "command":
         return _parse_command(tokens, index, style)
     if kind == "letter":
+        if style == "bold":
+            return [_run(value, upright=True, bold=True)], index + 1
         return [_run(value, italic=True, bold=bold)], index + 1
     if kind in ("number", "other", "bracket"):
         if style == "italic":
@@ -422,7 +422,7 @@ def _parse_command(tokens: list, index: int, style: Optional[str] = None) -> tup
     """Parse one `\\command` and its arguments. Returns (elements, index)."""
     name = tokens[index][1][1:]
     index += 1
-    bold = style == "bold"
+    bold = style in ("bold", "bolditalic")
 
     if name in _FRACTIONS:
         numerator, index = _parse_group(tokens, index, style)
@@ -431,6 +431,8 @@ def _parse_command(tokens: list, index: int, style: Optional[str] = None) -> tup
 
     if name == "sqrt":
         degree, index = _read_bracket_argument(tokens, index, style)
+        if not degree:
+            degree = None
         radicand, index = _parse_group(tokens, index, style)
         return [_radical(degree, radicand)], index
 
@@ -438,8 +440,12 @@ def _parse_command(tokens: list, index: int, style: Optional[str] = None) -> tup
         text, index = _read_raw_group(tokens, index)
         return [_run(text, upright=True, bold=bold)], index
 
-    if name in _BOLD_STYLE:
+    if name in _BOLD_UPRIGHT_STYLE:
         elements, index = _parse_group(tokens, index, "bold")
+        return elements, index
+
+    if name in _BOLD_ITALIC_STYLE:
+        elements, index = _parse_group(tokens, index, "bolditalic")
         return elements, index
 
     if name in _ITALIC_STYLE:
@@ -454,7 +460,7 @@ def _parse_command(tokens: list, index: int, style: Optional[str] = None) -> tup
         )
 
     if name in _SYMBOLS:
-        return [_run(_SYMBOLS[name], bold=bold)], index
+        return [_run(_SYMBOLS[name], italic=style == "bolditalic", bold=bold)], index
 
     if name in _SPACING:
         spacing = _SPACING[name]
@@ -476,7 +482,7 @@ def _parse_command(tokens: list, index: int, style: Optional[str] = None) -> tup
 # --------------------------------------------------------------------------
 
 
-def omml_children(latex: str) -> list:
+def omml_children(latex: str) -> list[Any]:
     """Parse a LaTeX math string into a list of OMML elements."""
     tokens = _tokenize(latex)
     elements, index = _parse_sequence(tokens, 0, stop=None)
