@@ -5,7 +5,7 @@ from pathlib import Path
 from docx import Document
 from docx.shared import Pt
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent, QIcon
+from PyQt6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent, QIcon, QMouseEvent
 from PyQt6.QtWidgets import (
     QApplication, QAbstractItemView, QComboBox, QFileDialog, QGroupBox,
     QHBoxLayout, QLabel, QListWidget, QMainWindow, QMessageBox,
@@ -24,6 +24,7 @@ class MarkdownToWordConverter:
     def __init__(self):
         self.default_font_name = "Times New Roman"
         self.default_font_size = Pt(12)
+        self.footnotes_heading = "Footnotes"
 
     def convert_content(
         self, content: str, output_path: str | Path, source_path: Path | None = None
@@ -31,7 +32,7 @@ class MarkdownToWordConverter:
         """Convert Markdown text and save it at *output_path*."""
         try:
             document, warnings = GfmDocxRenderer(
-                self.default_font_name, self.default_font_size
+                self.default_font_name, self.default_font_size, self.footnotes_heading
             ).render(content, source_path=source_path)
             document.save(str(output_path))
             message = "Успешно конвертировано"
@@ -132,6 +133,26 @@ class WordToMarkdownConverter:
             return False, f"Ошибка при конвертации: {str(e)}"
 
 
+def _dropped_local_paths(event: Any | None) -> list[str]:
+    """Local filesystem paths carried by a drop event, if any."""
+    if event is None:
+        return []
+    mime_data = event.mimeData()
+    if mime_data is None:
+        return []
+    return [url.toLocalFile() for url in mime_data.urls() if url.isLocalFile()]
+
+
+def _accept_local_paths_event(event: Any | None) -> None:
+    """Accept a drag event that carries at least one local filesystem path."""
+    if event is None:
+        return
+    if _dropped_local_paths(event):
+        event.acceptProposedAction()
+    else:
+        event.ignore()
+
+
 class DropFileList(QListWidget):
     """A queue widget that accepts files and directories from the desktop."""
 
@@ -141,37 +162,44 @@ class DropFileList(QListWidget):
         super().__init__(parent)
         self.setAcceptDrops(True)
 
-    @staticmethod
-    def _accept_url_event(event: Any | None) -> None:
-        if event is None:
-            return
-        mime_data = event.mimeData()
-        if mime_data is not None and mime_data.hasUrls() and any(
-            url.isLocalFile() for url in mime_data.urls()
-        ):
-            event.acceptProposedAction()
-        else:
-            event.ignore()
-
     def dragEnterEvent(self, e: QDragEnterEvent | None) -> None:
-        self._accept_url_event(e)
+        _accept_local_paths_event(e)
 
     def dragMoveEvent(self, e: QDragMoveEvent | None) -> None:
-        self._accept_url_event(e)
+        _accept_local_paths_event(e)
 
     def dropEvent(self, event: QDropEvent | None) -> None:
         if event is None:
             return
-        mime_data = event.mimeData()
-        paths = [
-            url.toLocalFile() for url in (mime_data.urls() if mime_data is not None else ())
-            if url.isLocalFile()
-        ]
+        paths = _dropped_local_paths(event)
         if paths:
             self.paths_dropped.emit(paths)
             event.acceptProposedAction()
         else:
             event.ignore()
+
+
+class DropZoneLabel(QLabel):
+    """Clickable drop hint that doubles as a file-picker button."""
+
+    clicked = pyqtSignal()
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("drop-zone")
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setWordWrap(True)
+        self.setMinimumHeight(80)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mouseReleaseEvent(self, event: QMouseEvent | None) -> None:
+        if (
+            event is not None
+            and event.button() == Qt.MouseButton.LeftButton
+            and self.rect().contains(event.position().toPoint())
+        ):
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
 
 
 class ConverterGUI(QMainWindow):
@@ -184,7 +212,7 @@ class ConverterGUI(QMainWindow):
         if isinstance(app, QApplication):
             self.theme_manager.apply(app)
         self.setWindowTitle("MDtoWord")
-        self.resize(860, 760)
+        self.resize(860, 720)
         self.selected_files: list[Path] = []
         self.output_directory: Path | None = None
         self.current_converter_type = "md_to_word"
@@ -195,7 +223,6 @@ class ConverterGUI(QMainWindow):
             "ru": {
                 "title_md": "Markdown → Word", "title_word": "Word → Markdown",
                 "settings": "Оформление документа", "font": "Шрифт", "size": "Размер",
-                "queue_md": "Файлы Markdown", "queue_word": "Файлы Word",
                 "drop_md": "Перетащите файлы или папки Markdown сюда",
                 "drop_word": "Перетащите файлы или папки Word сюда",
                 "add_files": "Добавить файлы", "add_folder": "Добавить папку",
@@ -203,7 +230,8 @@ class ConverterGUI(QMainWindow):
                 "files_tab": "Файлы", "text_tab": "Текст", "text_label": "Введите Markdown-текст",
                 "output": "Место сохранения", "output_auto": "Рядом с исходными файлами",
                 "choose_output": "Выбрать папку", "reset_output": "Сбросить",
-                "ready": "Готово к конвертации", "converting": "Конвертация: {filename}",
+                "ready": "Готово к конвертации", "queued": "В очереди: {count}",
+                "converting": "Конвертация: {filename}",
                 "finished": "Конвертация завершена", "convert": "Конвертировать",
                 "toggle_md": "Режим: MD → Word", "toggle_word": "Режим: Word → MD",
                 "theme_dark": "Тёмная тема · Переключить на светлую",
@@ -211,11 +239,11 @@ class ConverterGUI(QMainWindow):
                 "no_files": "Добавьте файлы или папку для конвертации",
                 "empty_text": "Введите текст для конвертации", "save_as": "Сохранить как",
                 "errors": "Конвертация завершена с ошибками", "result": "Готово: {success}\nОшибок: {errors}",
+                "footnotes_heading": "Сноски",
             },
             "en": {
                 "title_md": "Markdown → Word", "title_word": "Word → Markdown",
                 "settings": "Document appearance", "font": "Font", "size": "Size",
-                "queue_md": "Markdown files", "queue_word": "Word files",
                 "drop_md": "Drop Markdown files or folders here",
                 "drop_word": "Drop Word files or folders here",
                 "add_files": "Add files", "add_folder": "Add folder",
@@ -223,7 +251,8 @@ class ConverterGUI(QMainWindow):
                 "files_tab": "Files", "text_tab": "Text", "text_label": "Enter Markdown text",
                 "output": "Save location", "output_auto": "Next to each source file",
                 "choose_output": "Choose folder", "reset_output": "Reset",
-                "ready": "Ready to convert", "converting": "Converting: {filename}",
+                "ready": "Ready to convert", "queued": "In queue: {count}",
+                "converting": "Converting: {filename}",
                 "finished": "Conversion finished", "convert": "Convert",
                 "toggle_md": "Mode: MD → Word", "toggle_word": "Mode: Word → MD",
                 "theme_dark": "Dark theme · Switch to light",
@@ -231,10 +260,14 @@ class ConverterGUI(QMainWindow):
                 "no_files": "Add files or a folder to convert",
                 "empty_text": "Enter text to convert", "save_as": "Save as",
                 "errors": "Conversion completed with errors", "result": "Complete: {success}\nErrors: {errors}",
+                "footnotes_heading": "Footnotes",
             },
         }
+        if isinstance(self.converter, MarkdownToWordConverter):
+            self.converter.footnotes_heading = self._text["footnotes_heading"]
         self._set_icon()
         self._create_widgets()
+        self.setAcceptDrops(True)
 
     def _set_icon(self) -> None:
         script_dir = Path(__file__).resolve().parent
@@ -248,12 +281,28 @@ class ConverterGUI(QMainWindow):
     def _text(self) -> dict[str, str]:
         return self.translations[self.current_language]
 
+    def dragEnterEvent(self, event: QDragEnterEvent | None) -> None:
+        _accept_local_paths_event(event)
+
+    def dragMoveEvent(self, event: QDragMoveEvent | None) -> None:
+        _accept_local_paths_event(event)
+
+    def dropEvent(self, event: QDropEvent | None) -> None:
+        if event is None:
+            return
+        paths = _dropped_local_paths(event)
+        if paths:
+            self._add_sources(paths)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
     def _create_widgets(self) -> None:
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
-        layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(20, 14, 20, 16)
+        layout.setSpacing(10)
 
         self.title_label = QLabel()
         self.title_label.setObjectName("title-label")
@@ -280,16 +329,14 @@ class ConverterGUI(QMainWindow):
 
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs, 1)
-        files_tab = QWidget()
-        files_tab.setObjectName("tab-page")
-        files_layout = QVBoxLayout(files_tab)
-        self.queue_group = QGroupBox()
-        queue_layout = QVBoxLayout(self.queue_group)
-        self.drop_hint = QLabel()
-        self.drop_hint.setObjectName("drop-zone")
-        self.drop_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.drop_hint.setMinimumHeight(100)
-        queue_layout.addWidget(self.drop_hint)
+        self.files_tab = QWidget()
+        self.files_tab.setObjectName("tab-page")
+        files_layout = QVBoxLayout(self.files_tab)
+        files_layout.setContentsMargins(16, 16, 16, 16)
+        files_layout.setSpacing(10)
+        self.drop_hint = DropZoneLabel()
+        self.drop_hint.clicked.connect(self._select_files)
+        files_layout.addWidget(self.drop_hint)
         actions = QHBoxLayout()
         self.add_files_button = QPushButton()
         self.add_files_button.clicked.connect(self._select_files)
@@ -298,12 +345,13 @@ class ConverterGUI(QMainWindow):
         actions.addWidget(self.add_files_button)
         actions.addWidget(self.add_folder_button)
         actions.addStretch()
-        queue_layout.addLayout(actions)
+        files_layout.addLayout(actions)
         self.files_listbox = DropFileList()
         self.files_listbox.paths_dropped.connect(self._add_sources)
+        self.files_listbox.itemSelectionChanged.connect(self._update_queue_buttons)
         self.files_listbox.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.files_listbox.setMinimumHeight(180)
-        queue_layout.addWidget(self.files_listbox)
+        self.files_listbox.setMinimumHeight(90)
+        files_layout.addWidget(self.files_listbox, 1)
         removal = QHBoxLayout()
         self.remove_button = QPushButton()
         self.remove_button.setObjectName("danger-button")
@@ -314,9 +362,8 @@ class ConverterGUI(QMainWindow):
         removal.addWidget(self.remove_button)
         removal.addWidget(self.clear_button)
         removal.addStretch()
-        queue_layout.addLayout(removal)
-        files_layout.addWidget(self.queue_group)
-        self.tabs.addTab(files_tab, "")
+        files_layout.addLayout(removal)
+        self.tabs.addTab(self.files_tab, "")
 
         self.text_tab = QWidget()
         self.text_tab.setObjectName("tab-page")
@@ -341,6 +388,9 @@ class ConverterGUI(QMainWindow):
         layout.addWidget(self.output_group)
 
         self.progress = QProgressBar()
+        policy = self.progress.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        self.progress.setSizePolicy(policy)
         self.progress.hide()
         layout.addWidget(self.progress)
         self.status_label = QLabel()
@@ -378,11 +428,14 @@ class ConverterGUI(QMainWindow):
         if isinstance(self.converter, MarkdownToWordConverter):
             self.converter.default_font_name = self.font_combobox.currentText()
             self.converter.default_font_size = Pt(self.size_spinbox.value())
+            self.converter.footnotes_heading = self._text["footnotes_heading"]
         self.selected_files = discover_sources(self.selected_files, self.current_converter_type)
         self._update_ui()
 
     def _toggle_language(self) -> None:
         self.current_language = "en" if self.current_language == "ru" else "ru"
+        if isinstance(self.converter, MarkdownToWordConverter):
+            self.converter.footnotes_heading = self._text["footnotes_heading"]
         self._update_ui()
 
     def _toggle_theme(self) -> None:
@@ -408,16 +461,15 @@ class ConverterGUI(QMainWindow):
         self.settings_group.setVisible(is_markdown)
         self.font_label.setText(text["font"])
         self.size_label.setText(text["size"])
-        self.queue_group.setTitle(text["queue_md"] if is_markdown else text["queue_word"])
         self.drop_hint.setText(text["drop_md"] if is_markdown else text["drop_word"])
         self.add_files_button.setText(text["add_files"])
         self.add_folder_button.setText(text["add_folder"])
         self.remove_button.setText(text["remove"])
         self.clear_button.setText(text["clear"])
-        self.tabs.setTabText(0, text["files_tab"])
-        self.tabs.setTabText(1, text["text_tab"])
+        self.tabs.setTabText(self.tabs.indexOf(self.files_tab), text["files_tab"])
+        self.tabs.setTabText(self.tabs.indexOf(self.text_tab), text["text_tab"])
         self.text_label.setText(text["text_label"])
-        self.text_tab.setVisible(is_markdown)
+        self.tabs.setTabVisible(self.tabs.indexOf(self.text_tab), is_markdown)
         self.output_group.setTitle(text["output"])
         self.output_label.setText(str(self.output_directory) if self.output_directory else text["output_auto"])
         self.choose_output_button.setText(text["choose_output"])
@@ -433,10 +485,18 @@ class ConverterGUI(QMainWindow):
         for source in self.selected_files:
             self.files_listbox.addItem(f"{source.name}\n{source.parent}")
         count = len(self.selected_files)
-        self.status_label.setText(self._text["ready"] if not count else f"{count} · {self._text['ready']}")
+        if count:
+            self.status_label.setText(self._text["queued"].format(count=count))
+        else:
+            self.status_label.setText(self._text["ready"])
         self.convert_button.setText(
             self._text["convert"] if not count else f"{self._text['convert']} ({count})"
         )
+        self._update_queue_buttons()
+
+    def _update_queue_buttons(self) -> None:
+        self.clear_button.setEnabled(bool(self.selected_files))
+        self.remove_button.setEnabled(bool(self.files_listbox.selectedItems()))
 
     def _on_font_change(self, font_name: str) -> None:
         if isinstance(self.converter, MarkdownToWordConverter):
@@ -493,33 +553,56 @@ class ConverterGUI(QMainWindow):
             return
 
         suffix = ".docx" if self.current_converter_type == "md_to_word" else ".md"
-        outputs = resolve_output_paths(self.selected_files, self.output_directory, suffix)
-        self.progress.show()
-        self.progress.setRange(0, len(self.selected_files))
-        success_count = 0
-        errors: list[str] = []
-        warnings: list[str] = []
-        for index, source in enumerate(self.selected_files, start=1):
-            self.status_label.setText(self._text["converting"].format(filename=source.name))
-            QApplication.processEvents()
-            success, message = self.converter.convert_file(source, outputs[source])
-            if success:
-                success_count += 1
-                if "Warnings:" in message:
-                    warnings.append(f"{source.name}: {message.split('Warnings:', 1)[1].strip()}")
-            else:
-                errors.append(f"{source.name}: {message}")
-            self.progress.setValue(index)
-            QApplication.processEvents()
+        queue = list(self.selected_files)
+        outputs = resolve_output_paths(queue, self.output_directory, suffix)
 
-        details = errors + warnings
-        result = self._text["result"].format(success=success_count, errors=len(errors))
-        if details:
-            QMessageBox.warning(self, self._text["errors"], result + "\n\n" + "\n".join(details))
-        else:
-            QMessageBox.information(self, self.windowTitle(), result)
-        self.status_label.setText(self._text["finished"])
-        self.progress.hide()
+        lockable_widgets = (
+            self.convert_button,
+            self.files_listbox,
+            self.add_files_button,
+            self.add_folder_button,
+            self.remove_button,
+            self.clear_button,
+            self.drop_hint,
+        )
+        try:
+            for widget in lockable_widgets:
+                widget.setEnabled(False)
+            self.setAcceptDrops(False)
+            self.files_listbox.setAcceptDrops(False)
+            self.progress.show()
+            self.progress.setRange(0, len(queue))
+            success_count = 0
+            errors: list[str] = []
+            warnings: list[str] = []
+            for index, source in enumerate(queue, start=1):
+                self.status_label.setText(self._text["converting"].format(filename=source.name))
+                QApplication.processEvents()
+                success, message = self.converter.convert_file(source, outputs[source])
+                if success:
+                    success_count += 1
+                    if "Warnings:" in message:
+                        warnings.append(f"{source.name}: {message.split('Warnings:', 1)[1].strip()}")
+                else:
+                    errors.append(f"{source.name}: {message}")
+                self.progress.setValue(index)
+                QApplication.processEvents()
+
+            details = errors + warnings
+            result = self._text["result"].format(success=success_count, errors=len(errors))
+            if details:
+                QMessageBox.warning(self, self._text["errors"], result + "\n\n" + "\n".join(details))
+            else:
+                QMessageBox.information(self, self.windowTitle(), result)
+            self.status_label.setText(self._text["finished"])
+        finally:
+            self.progress.hide()
+            self.progress.reset()
+            self.setAcceptDrops(True)
+            self.files_listbox.setAcceptDrops(True)
+            for widget in lockable_widgets:
+                widget.setEnabled(True)
+            self._update_queue_buttons()
 
     def _convert_text(self) -> None:
         if not isinstance(self.converter, MarkdownToWordConverter):
