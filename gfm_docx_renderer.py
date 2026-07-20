@@ -31,14 +31,19 @@ _MATRIX_ENVIRONMENTS = frozenset(
     {"matrix", "pmatrix", "bmatrix", "Bmatrix", "vmatrix", "Vmatrix"}
 )
 # The amsmath plugin hands us the environment complete with its wrapper, e.g.
-# "\begin{align}\na &= b \\\\\nc &= d\n\end{align}". ``alignat`` adds a column
-# count right after the opening tag, hence the optional brace group.
+# "\begin{align}\na &= b \\\\\nc &= d\n\end{align}".
 _AMSMATH_WRAPPER = re.compile(
-    r"^\\begin\{(?P<environment>[A-Za-z]+)\*?\}(?:\{[^{}]*\})?"
+    r"^\\begin\{(?P<environment>[A-Za-z]+)\*?\}"
     r"(?P<body>.*)"
     r"\\end\{(?P=environment)\*?\}$",
     re.DOTALL,
 )
+# ``alignat`` and ``flalign`` add a column-count argument right after the
+# opening tag, e.g. "\begin{alignat}{2}". Every other environment keeps a
+# leading brace group as part of its body -- ``\begin{equation}{\bf x}...``
+# is ordinary physics LaTeX, not an argument, and must not be eaten.
+_COLUMN_ARGUMENT_ENVIRONMENTS = frozenset({"alignat", "flalign"})
+_COLUMN_ARGUMENT = re.compile(r"^\{[^{}]*\}")
 _LINE_BREAK = re.compile(r"\\\\")
 # An unescaped "&" is amsmath column alignment; "\&" is a literal ampersand.
 _ALIGNMENT_MARKER = re.compile(r"(?<!\\)&")
@@ -278,13 +283,34 @@ class GfmDocxRenderer:
                 token.content = token.content.removeprefix(prefix)
                 return
 
-    @staticmethod
-    def _inline_text(children: list[Any]) -> str:
-        return "".join(
-            "\n" if token.type in {"softbreak", "hardbreak"} else token.content
-            for token in children
-            if token.type not in {"link_open", "link_close", "em_open", "em_close", "strong_open", "strong_close", "s_open", "s_close"}
-        )
+    def _inline_text(self, children: list[Any]) -> str:
+        """Flatten inline children to plain text, e.g. for a table cell.
+
+        Math tokens are kept with their delimiters (``$x^2$``) rather than
+        converted, since a real equation has no home inside a table cell
+        here; a warning says so, so the loss is never silent.
+        """
+        parts = []
+        for token in children:
+            if token.type in {
+                "link_open", "link_close", "em_open", "em_close",
+                "strong_open", "strong_close", "s_open", "s_close",
+            }:
+                continue
+            if token.type in {"softbreak", "hardbreak"}:
+                parts.append("\n")
+                continue
+            if token.type in {"math_inline", "math_inline_double"}:
+                markup = token.markup or "$"
+                verbatim = f"{markup}{token.content}{markup}"
+                parts.append(verbatim)
+                self.warnings.append(
+                    f'Formula kept as text in a table cell: "{verbatim}" '
+                    "(formulas inside table cells are not converted)"
+                )
+                continue
+            parts.append(token.content)
+        return "".join(parts)
 
     def _append_text(
         self, text: str, formatting: dict[str, bool], link_target: str | None
@@ -382,13 +408,13 @@ class GfmDocxRenderer:
             # Cyrillic between single dollars is far more often prose (shell
             # variables, price ranges) than a formula; keep it verbatim and
             # let _render_math_literal raise the "write \$" warning.
-            self._render_math_literal(latex, display=False)
+            self._render_math_literal(latex, display=False, markup=markup)
             return
         try:
             math_element = latex_to_omml(formula)
         except UnsupportedLatexError as error:
             self.warnings.append(f'Formula kept as text: "{formula}" ({error})')
-            self._render_math_literal(latex, display)
+            self._render_math_literal(latex, display, markup=markup)
             return
         self._place_math(math_element, display)
 
@@ -408,11 +434,25 @@ class GfmDocxRenderer:
         The plugin delivers the environment complete with its
         ``\begin{...}``/``\end{...}`` wrapper plus ``meta["environment"]``
         (star already stripped). Matrix families go to ``latex_omml``
-        untouched because it parses them itself; everything else is unwrapped
-        and split on ``\\`` into one centred equation per line, since OMML has
-        no equivalent of amsmath's ``&`` column alignment. If any line fails
-        to convert, the whole environment is kept verbatim so nothing of the
-        source is lost to a partial rendering.
+        untouched because it parses them itself. ``alignat`` and
+        ``flalign`` additionally carry a ``{n}`` column-count argument
+        right after the opening tag, which is stripped before the body is
+        inspected -- every other environment keeps a leading brace group as
+        part of its body, so e.g. ``{\bf x}`` flush against
+        ``\begin{equation}`` is not mistaken for one.
+
+        The body is tried whole, as a single equation, first. That is what
+        lets a construct nested inside it -- a matrix inside an
+        ``equation``, say -- survive intact rather than being cut apart by
+        the ``\\``/``&`` splitting below, which knows nothing about
+        environment boundaries. Only if that whole-body conversion fails
+        do the remaining, genuinely multi-line environments fall back to
+        splitting on ``\\`` into one centred equation per line, since OMML
+        has no equivalent of amsmath's ``&`` column alignment;
+        ``equation`` is single-equation by definition and is never split
+        this way. If any line of a split fails to convert, the whole
+        environment is kept verbatim so nothing of the source is lost to a
+        partial rendering.
         """
         source = token.content
         environment = (token.meta or {}).get("environment", "")
@@ -422,6 +462,31 @@ class GfmDocxRenderer:
 
         match = _AMSMATH_WRAPPER.match(source.strip())
         body = match.group("body") if match else source
+        if match and environment in _COLUMN_ARGUMENT_ENVIRONMENTS:
+            body = _COLUMN_ARGUMENT.sub("", body, count=1)
+
+        stripped_body = body.strip()
+        if not stripped_body:
+            return
+
+        try:
+            whole_element = latex_to_omml(stripped_body)
+        except UnsupportedLatexError as error:
+            whole_body_error = error
+        else:
+            self._place_math(whole_element, display=True)
+            return
+
+        if environment == "equation":
+            # ``equation`` is single-equation by definition: if the whole
+            # body did not convert, there is nothing left to try splitting
+            # on ``\\``.
+            self.warnings.append(
+                f'Formula kept as text: "{stripped_body}" ({whole_body_error})'
+            )
+            self._render_math_literal(source, display=True)
+            return
+
         lines = [
             _ALIGNMENT_MARKER.sub(" ", line).strip()
             for line in _LINE_BREAK.split(body)
@@ -441,8 +506,13 @@ class GfmDocxRenderer:
         for element in elements:
             self._place_math(element, display=True)
 
-    def _render_math_literal(self, latex: str, display: bool) -> None:
-        """Write a formula as verbatim monospace text, preserving every character."""
+    def _render_math_literal(self, latex: str, display: bool, markup: str = "$") -> None:
+        """Write a formula as verbatim monospace text, preserving every character.
+
+        Inline fallbacks restore the surrounding ``markup`` (``$`` by
+        default) so the user sees exactly what they wrote, delimiters
+        included, instead of losing them the one time they matter most.
+        """
         text = latex.strip("\n")
         if display:
             paragraph = self.document.add_paragraph()
@@ -457,7 +527,7 @@ class GfmDocxRenderer:
                 )
             if self._paragraph is None:
                 self._paragraph = self._new_paragraph()
-            run = self._paragraph.add_run(text)
+            run = self._paragraph.add_run(f"{markup}{text}{markup}")
         run.font.name = "Courier New"
         run.font.size = Pt(10)
 

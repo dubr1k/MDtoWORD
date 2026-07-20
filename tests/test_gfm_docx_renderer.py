@@ -19,6 +19,11 @@ def _equations(paragraph):
     return paragraph._p.findall(f"{_MATH_NS}oMath")
 
 
+def _equation_text(equation):
+    """All literal text inside one <m:oMath> element, concatenated."""
+    return "".join(t.text or "" for t in equation.iter(f"{_MATH_NS}t"))
+
+
 class GfmDocxRendererTests(unittest.TestCase):
     def setUp(self):
         self.renderer = GfmDocxRenderer("Arial", Pt(12))
@@ -139,6 +144,16 @@ class GfmDocxRendererTests(unittest.TestCase):
         self.assertEqual(body.cells[1].paragraphs[0].alignment, WD_ALIGN_PARAGRAPH.RIGHT)
         self.assertEqual(body.cells[2].paragraphs[0].alignment, WD_ALIGN_PARAGRAPH.CENTER)
 
+    def test_table_cell_math_is_kept_verbatim_with_a_warning(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "| formula | plain |\n|---|---|\n| $x^2$ | c |\n"
+        )
+        cell = document.tables[0].cell(1, 0)
+        self.assertEqual(cell.text, "$x^2$")
+        self.assertEqual(_equations(cell.paragraphs[0]), [])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("table cell", warnings[0])
+
     def test_escaped_inline_math_becomes_equations_not_text(self):
         document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
             r"Формула $a\,b$ и $a*b*c$ и $50\%$ в строке."
@@ -210,6 +225,116 @@ class GfmDocxRendererTests(unittest.TestCase):
         self.assertIn("<m:m>", with_equations[0]._p.xml)
         self.assertEqual(warnings, [])
 
+    def test_amsmath_equation_keeps_a_leading_brace_group(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "\\begin{equation}{a} + b = c\\end{equation}\n"
+        )
+        with_equations = [p for p in document.paragraphs if _equations(p)]
+        self.assertEqual(len(with_equations), 1)
+        equations = _equations(with_equations[0])
+        self.assertEqual(len(equations), 1)
+        text = _equation_text(equations[0])
+        for expected in ("a", "+", "b", "=", "c"):
+            self.assertIn(expected, text)
+        self.assertEqual(warnings, [])
+
+    def test_amsmath_gather_keeps_a_leading_brace_group(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "\\begin{gather}{a} + b\\end{gather}\n"
+        )
+        with_equations = [p for p in document.paragraphs if _equations(p)]
+        self.assertEqual(len(with_equations), 1)
+        text = _equation_text(_equations(with_equations[0])[0])
+        for expected in ("a", "+", "b"):
+            self.assertIn(expected, text)
+        self.assertEqual(warnings, [])
+
+    def test_amsmath_align_keeps_a_leading_brace_group(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "\\begin{align}{a} &= b\\end{align}\n"
+        )
+        with_equations = [p for p in document.paragraphs if _equations(p)]
+        self.assertEqual(len(with_equations), 1)
+        text = _equation_text(_equations(with_equations[0])[0])
+        for expected in ("a", "=", "b"):
+            self.assertIn(expected, text)
+        self.assertEqual(warnings, [])
+
+    def test_amsmath_alignat_consumes_its_column_argument(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "\\begin{alignat}{2}\n"
+            "a &= b \\\\\n"
+            "c &= d\n"
+            "\\end{alignat}\n"
+        )
+        with_equations = [p for p in document.paragraphs if _equations(p)]
+        self.assertEqual(len(with_equations), 2)
+        combined_text = "".join(
+            _equation_text(equation)
+            for paragraph in with_equations
+            for equation in _equations(paragraph)
+        )
+        self.assertNotIn("2", combined_text)
+        for expected in ("a", "b", "c", "d"):
+            self.assertIn(expected, combined_text)
+        self.assertEqual(warnings, [])
+
+    def test_amsmath_flalign_converts_to_equations(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "\\begin{flalign}\n"
+            "a &= b \\\\\n"
+            "c &= d\n"
+            "\\end{flalign}\n"
+        )
+        with_equations = [p for p in document.paragraphs if _equations(p)]
+        self.assertGreaterEqual(len(with_equations), 1)
+        self.assertEqual(warnings, [])
+
+    def test_amsmath_gather_converts_to_equations(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "\\begin{gather}\n"
+            "a + b \\\\\n"
+            "c + d\n"
+            "\\end{gather}\n"
+        )
+        with_equations = [p for p in document.paragraphs if _equations(p)]
+        self.assertGreaterEqual(len(with_equations), 1)
+        self.assertEqual(warnings, [])
+
+    def test_amsmath_multline_converts_to_equations(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "\\begin{multline}\n"
+            "a + b \\\\\n"
+            "c + d\n"
+            "\\end{multline}\n"
+        )
+        with_equations = [p for p in document.paragraphs if _equations(p)]
+        self.assertGreaterEqual(len(with_equations), 1)
+        self.assertEqual(warnings, [])
+
+    def test_amsmath_eqnarray_converts_to_equations(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "\\begin{eqnarray}\n"
+            "a &= b \\\\\n"
+            "c &= d\n"
+            "\\end{eqnarray}\n"
+        )
+        with_equations = [p for p in document.paragraphs if _equations(p)]
+        self.assertGreaterEqual(len(with_equations), 1)
+        self.assertEqual(warnings, [])
+
+    def test_amsmath_equation_with_nested_matrix_is_one_equation(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "\\begin{equation}\n"
+            "A = \\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}\n"
+            "\\end{equation}\n"
+        )
+        with_equations = [p for p in document.paragraphs if _equations(p)]
+        self.assertEqual(len(with_equations), 1)
+        self.assertEqual(len(_equations(with_equations[0])), 1)
+        self.assertIn("<m:m>", with_equations[0]._p.xml)
+        self.assertEqual(warnings, [])
+
     def test_unsupported_display_environment_is_kept_byte_for_byte(self):
         source = (
             "\\begin{align}\n"
@@ -274,6 +399,7 @@ class GfmDocxRendererTests(unittest.TestCase):
         self.assertEqual(len(warnings), 1)
         self.assertIn(r"\$", warnings[0])
         self.assertIn("HOME", warnings[0])
+        self.assertIn("$HOME и $", document.paragraphs[0].text)
 
     def test_genuine_formula_does_not_warn(self):
         document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
@@ -303,7 +429,7 @@ class GfmDocxRendererTests(unittest.TestCase):
         document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
             r"Формула $\qedsymbol{x}$ здесь."
         )
-        self.assertIn(r"\qedsymbol{x}", document.paragraphs[0].text)
+        self.assertIn(r"$\qedsymbol{x}$", document.paragraphs[0].text)
         self.assertEqual(len(warnings), 1)
         self.assertIn("qedsymbol", warnings[0])
 
@@ -343,7 +469,7 @@ class GfmDocxRendererTests(unittest.TestCase):
         self.assertIn("qedsymbol", warnings[0])
 
         text = "\n".join(p.text for p in reopened.paragraphs)
-        self.assertIn(f"Broken {unsupported} formula.", text)
+        self.assertIn(f"Broken ${unsupported}$ formula.", text)
 
     def test_footnote_paragraphs_are_justified_like_body_lists(self):
         document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
