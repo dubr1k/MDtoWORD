@@ -18,10 +18,30 @@ from mdit_py_plugins.amsmath import amsmath_plugin
 from mdit_py_plugins.dollarmath import dollarmath_plugin
 from mdit_py_plugins.footnote import footnote_plugin
 
+from latex_omml import UnsupportedLatexError, latex_to_omml
+
 
 _TASK_PREFIX = re.compile(r"^\[([ xX])\]\s+")
 _CYRILLIC = re.compile(r"[Ѐ-ӿ]")
 _BLACK = RGBColor(0, 0, 0)
+
+# ``latex_omml`` parses these environments itself, so they are passed through
+# with their ``\begin``/``\end`` wrapper intact.
+_MATRIX_ENVIRONMENTS = frozenset(
+    {"matrix", "pmatrix", "bmatrix", "Bmatrix", "vmatrix", "Vmatrix"}
+)
+# The amsmath plugin hands us the environment complete with its wrapper, e.g.
+# "\begin{align}\na &= b \\\\\nc &= d\n\end{align}". ``alignat`` adds a column
+# count right after the opening tag, hence the optional brace group.
+_AMSMATH_WRAPPER = re.compile(
+    r"^\\begin\{(?P<environment>[A-Za-z]+)\*?\}(?:\{[^{}]*\})?"
+    r"(?P<body>.*)"
+    r"\\end\{(?P=environment)\*?\}$",
+    re.DOTALL,
+)
+_LINE_BREAK = re.compile(r"\\\\")
+# An unescaped "&" is amsmath column alignment; "\&" is a literal ampersand.
+_ALIGNMENT_MARKER = re.compile(r"(?<!\\)&")
 
 
 class GfmDocxRenderer:
@@ -119,11 +139,14 @@ class GfmDocxRenderer:
             return
         if token_type in {"list_item_open", "list_item_close"}:
             return
-        if token_type in {"math_block", "amsmath"}:
-            self._render_math_literal(token.content, display=True)
+        if token_type == "amsmath":
+            self._render_amsmath(token)
+            return
+        if token_type == "math_block":
+            self._render_math(token.content, display=True)
             return
         if token_type == "math_block_label":
-            self._render_math_literal(token.content, display=True)
+            self._render_math(token.content, display=True)
             self._append_equation_label(token.info)
             return
         if token_type in {"fence", "code_block"}:
@@ -242,7 +265,9 @@ class GfmDocxRenderer:
             elif token_type == "footnote_ref":
                 self._append_text(f"[{token.meta['label']}]", formatting, None)
             elif token_type in {"math_inline", "math_inline_double"}:
-                self._render_math_literal(token.content, display=False)
+                self._render_math(
+                    token.content, display=False, markup=token.markup or "$"
+                )
             else:
                 self._append_text(token.content, formatting, link_target)
 
@@ -329,6 +354,92 @@ class GfmDocxRenderer:
         except Exception as error:
             self.warnings.append(f"Image could not be rendered: {target} ({error})")
             self._append_text(f"[{alt_text}]", {"bold": False, "italic": False, "strike": False, "code": False}, None)
+
+    def _render_math(self, latex: str, display: bool, markup: str = "$") -> None:
+        """Insert a real Word equation, falling back to verbatim text.
+
+        Every path ends in either an equation or the untouched source plus a
+        warning, so a formula can never silently vanish or be silently wrong.
+        """
+        formula = latex.strip("\n").strip()
+        if not formula:
+            if display:
+                # Keep the empty block so an equation label still has a home.
+                paragraph = self.document.add_paragraph()
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                return
+            # An empty inline span means the dollars were literal, as in
+            # "x $ $ y"; put them back rather than swallowing them.
+            if self._paragraph is None:
+                self._paragraph = self._new_paragraph()
+            self._append_text(
+                f"{markup}{latex}{markup}",
+                {"bold": False, "italic": False, "strike": False, "code": False},
+                None,
+            )
+            return
+        if not display and _CYRILLIC.search(formula):
+            # Cyrillic between single dollars is far more often prose (shell
+            # variables, price ranges) than a formula; keep it verbatim and
+            # let _render_math_literal raise the "write \$" warning.
+            self._render_math_literal(latex, display=False)
+            return
+        try:
+            math_element = latex_to_omml(formula)
+        except UnsupportedLatexError as error:
+            self.warnings.append(f'Formula kept as text: "{formula}" ({error})')
+            self._render_math_literal(latex, display)
+            return
+        self._place_math(math_element, display)
+
+    def _place_math(self, math_element: Any, display: bool) -> None:
+        if display:
+            paragraph = self.document.add_paragraph()
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            paragraph._p.append(math_element)
+            return
+        if self._paragraph is None:
+            self._paragraph = self._new_paragraph()
+        self._paragraph._p.append(math_element)
+
+    def _render_amsmath(self, token: Any) -> None:
+        r"""Render an ``amsmath`` environment as one or more Word equations.
+
+        The plugin delivers the environment complete with its
+        ``\begin{...}``/``\end{...}`` wrapper plus ``meta["environment"]``
+        (star already stripped). Matrix families go to ``latex_omml``
+        untouched because it parses them itself; everything else is unwrapped
+        and split on ``\\`` into one centred equation per line, since OMML has
+        no equivalent of amsmath's ``&`` column alignment. If any line fails
+        to convert, the whole environment is kept verbatim so nothing of the
+        source is lost to a partial rendering.
+        """
+        source = token.content
+        environment = (token.meta or {}).get("environment", "")
+        if environment in _MATRIX_ENVIRONMENTS:
+            self._render_math(source, display=True)
+            return
+
+        match = _AMSMATH_WRAPPER.match(source.strip())
+        body = match.group("body") if match else source
+        lines = [
+            _ALIGNMENT_MARKER.sub(" ", line).strip()
+            for line in _LINE_BREAK.split(body)
+        ]
+        lines = [line for line in lines if line]
+        if not lines:
+            return
+
+        elements = []
+        for line in lines:
+            try:
+                elements.append(latex_to_omml(line))
+            except UnsupportedLatexError as error:
+                self.warnings.append(f'Formula kept as text: "{line}" ({error})')
+                self._render_math_literal(source, display=True)
+                return
+        for element in elements:
+            self._place_math(element, display=True)
 
     def _render_math_literal(self, latex: str, display: bool) -> None:
         """Write a formula as verbatim monospace text, preserving every character."""
