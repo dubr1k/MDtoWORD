@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
-from PyQt6.QtCore import QSettings
+from PyQt6.QtCore import QSettings, QStandardPaths
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QApplication
 
@@ -64,13 +65,58 @@ _PALETTES = {
 }
 
 
+# Chevron paths tuned to render as clean strokes at a 12x12 viewBox. Filled
+# triangles and CSS border-triangle tricks were tried first and both looked
+# bad in Qt (the border trick renders as squares, not triangles) — a small
+# stroked SVG chevron is what actually looks right.
+_CHEVRON_PATH_D = {
+    "down": "M2.5 4.5 L6 8 L9.5 4.5",
+    "up": "M2.5 7.5 L6 4 L9.5 7.5",
+}
+
+
+def _chevron_svg(color: str, direction: str) -> str:
+    """Render a minimal chevron as inline SVG markup, tinted with ``color``."""
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12">'
+        f'<path d="{_CHEVRON_PATH_D[direction]}" fill="none" stroke="{color}" stroke-width="1.6" '
+        'stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    )
+
+
+def _arrow_css(selector: str, image_path: str | None, size: int) -> str:
+    """Build a ``{selector} { image: url(...); width; height; }`` rule.
+
+    Returns an empty string when ``image_path`` is falsy. Qt silently drops
+    the arrow entirely if width/height are set on an arrow subcontrol without
+    a matching image, so the two must always travel together — omitting both
+    leaves the native Fusion arrow in place instead of an invisible one.
+    """
+    if not image_path:
+        return ""
+    return (
+        f"{selector} {{\n"
+        f'                image: url("{image_path}");\n'
+        f"                width: {size}px;\n"
+        f"                height: {size}px;\n"
+        "            }"
+    )
+
+
 class ThemeManager:
     """Persist and apply the application's complete Qt widget theme."""
 
-    def __init__(self, settings: QSettings | None = None) -> None:
+    def __init__(
+        self,
+        settings: QSettings | None = None,
+        icon_cache_dir: str | Path | None = None,
+    ) -> None:
         self._settings = settings or QSettings("dubr1k", "MDtoWord")
         stored_theme = str(self._settings.value("theme", "dark"))
         self.theme = stored_theme if stored_theme in _PALETTES else "dark"
+        # Overrides QStandardPaths' cache location; primarily for tests that
+        # need a deterministic (or deliberately unwritable) directory.
+        self._icon_cache_dir = icon_cache_dir
 
     def toggle(self) -> str:
         self.theme = "light" if self.theme == "dark" else "dark"
@@ -80,8 +126,42 @@ class ThemeManager:
 
     def apply(self, app: QApplication) -> None:
         app.setStyle("Fusion")
-        app.setPalette(self._widget_palette(_PALETTES[self.theme]))
-        app.setStyleSheet(self.stylesheet(self.theme))
+        palette = _PALETTES[self.theme]
+        app.setPalette(self._widget_palette(palette))
+        chevron_down, chevron_up = self._ensure_chevron_icons(self.theme, palette)
+        app.setStyleSheet(
+            self.stylesheet(self.theme, chevron_down=chevron_down, chevron_up=chevron_up)
+        )
+
+    def _ensure_chevron_icons(
+        self, theme: str, palette: ThemePalette
+    ) -> tuple[str | None, str | None]:
+        """Write themed chevron SVGs to the icon cache; return their paths.
+
+        Returns ``(None, None)`` if the cache directory cannot be created or
+        written to for any reason (permissions, a read-only filesystem, a
+        path that collides with an existing file, ...). Callers must treat
+        that as "fall back to native arrows" rather than pass a dangling
+        path into the stylesheet — a missing ``image:`` target renders as
+        nothing at all, which is worse than the plain Fusion triangle.
+        """
+        try:
+            if self._icon_cache_dir is not None:
+                directory = Path(self._icon_cache_dir)
+            else:
+                location = QStandardPaths.writableLocation(
+                    QStandardPaths.StandardLocation.CacheLocation
+                )
+                directory = Path(location) if location else Path.cwd()
+            directory.mkdir(parents=True, exist_ok=True)
+
+            down_path = directory / f"chevron-down-{theme}.svg"
+            up_path = directory / f"chevron-up-{theme}.svg"
+            down_path.write_text(_chevron_svg(palette.text_muted, "down"), encoding="utf-8")
+            up_path.write_text(_chevron_svg(palette.text_muted, "up"), encoding="utf-8")
+            return down_path.as_posix(), up_path.as_posix()
+        except OSError:
+            return None, None
 
     @staticmethod
     def _widget_palette(palette: ThemePalette) -> QPalette:
@@ -114,8 +194,16 @@ class ThemeManager:
         return qpalette
 
     @staticmethod
-    def stylesheet(theme: str) -> str:
+    def stylesheet(
+        theme: str,
+        *,
+        chevron_down: str | None = None,
+        chevron_up: str | None = None,
+    ) -> str:
         palette = _PALETTES.get(theme, _PALETTES["dark"])
+        combo_down_arrow = _arrow_css("QComboBox::down-arrow", chevron_down, 12)
+        spin_up_arrow = _arrow_css("QSpinBox::up-arrow", chevron_up, 11)
+        spin_down_arrow = _arrow_css("QSpinBox::down-arrow", chevron_down, 11)
         return f"""
             QWidget {{
                 background: {palette.background};
@@ -174,6 +262,35 @@ class ThemeManager:
             QComboBox:focus, QSpinBox:focus {{ border: 1px solid {palette.accent}; }}
             QLineEdit:disabled, QPlainTextEdit:disabled, QListWidget:disabled,
             QComboBox:disabled, QSpinBox:disabled {{ color: {palette.disabled}; }}
+
+            QComboBox::drop-down {{
+                background: transparent;
+                border: none;
+                subcontrol-origin: padding;
+                subcontrol-position: center right;
+                width: 28px;
+            }}
+            QComboBox::drop-down:hover {{ background: {palette.surface_raised}; }}
+            {combo_down_arrow}
+
+            QSpinBox::up-button {{
+                background: transparent;
+                border: none;
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 22px;
+            }}
+            QSpinBox::up-button:hover {{ background: {palette.surface_raised}; }}
+            QSpinBox::down-button {{
+                background: transparent;
+                border: none;
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 22px;
+            }}
+            QSpinBox::down-button:hover {{ background: {palette.surface_raised}; }}
+            {spin_up_arrow}
+            {spin_down_arrow}
 
             QComboBox QAbstractItemView {{
                 background: {palette.surface_raised};
