@@ -14,6 +14,8 @@ from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor
 from docx.styles.style import ParagraphStyle
 from markdown_it import MarkdownIt
+from mdit_py_plugins.amsmath import amsmath_plugin
+from mdit_py_plugins.dollarmath import dollarmath_plugin
 from mdit_py_plugins.footnote import footnote_plugin
 
 
@@ -59,6 +61,8 @@ class GfmDocxRenderer:
             MarkdownIt("js-default", {"breaks": True, "html": False, "linkify": True})
             .enable("linkify")
             .use(footnote_plugin)
+            .use(dollarmath_plugin)
+            .use(amsmath_plugin)
         )
         for token in parser.parse(markdown):
             self._render_block(token, source_path)
@@ -113,6 +117,9 @@ class GfmDocxRenderer:
             self._list_stack.pop()
             return
         if token_type in {"list_item_open", "list_item_close"}:
+            return
+        if token_type in {"math_block", "math_block_label", "amsmath"}:
+            self._render_math_literal(token.content, display=True)
             return
         if token_type in {"fence", "code_block"}:
             self._render_code_block(token)
@@ -229,6 +236,8 @@ class GfmDocxRenderer:
                 self._append_image(token, source_path)
             elif token_type == "footnote_ref":
                 self._append_text(f"[{token.meta['label']}]", formatting, None)
+            elif token_type in {"math_inline", "math_inline_double"}:
+                self._render_math_literal(token.content, display=False)
             else:
                 self._append_text(token.content, formatting, link_target)
 
@@ -315,6 +324,20 @@ class GfmDocxRenderer:
         except Exception as error:
             self.warnings.append(f"Image could not be rendered: {target} ({error})")
             self._append_text(f"[{alt_text}]", {"bold": False, "italic": False, "strike": False, "code": False}, None)
+
+    def _render_math_literal(self, latex: str, display: bool) -> None:
+        """Write a formula as verbatim monospace text, preserving every character."""
+        text = latex.strip("\n")
+        if display:
+            paragraph = self.document.add_paragraph()
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = paragraph.add_run(text)
+        else:
+            if self._paragraph is None:
+                self._paragraph = self._new_paragraph()
+            run = self._paragraph.add_run(text)
+        run.font.name = "Courier New"
+        run.font.size = Pt(10)
 
     def _render_code_block(self, token: Any) -> None:
         language = token.info.strip().split(maxsplit=1)[0] if token.info else ""

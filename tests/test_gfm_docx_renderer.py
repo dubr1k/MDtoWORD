@@ -128,6 +128,30 @@ class GfmDocxRendererTests(unittest.TestCase):
         self.assertEqual(body.cells[1].paragraphs[0].alignment, WD_ALIGN_PARAGRAPH.RIGHT)
         self.assertEqual(body.cells[2].paragraphs[0].alignment, WD_ALIGN_PARAGRAPH.CENTER)
 
+    def test_inline_math_survives_verbatim(self):
+        document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            r"Формула $a\,b$ и $a*b*c$ и $50\%$ в строке."
+        )
+        text = document.paragraphs[0].text
+        self.assertIn(r"a\,b", text)
+        self.assertIn("a*b*c", text)
+        self.assertIn(r"50\%", text)
+
+    def test_display_math_survives_verbatim(self):
+        document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "$$\n\\int_0^\\infty e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}\n$$\n"
+        )
+        text = "\n".join(p.text for p in document.paragraphs)
+        self.assertIn(r"\,dx", text)
+        self.assertIn(r"\frac{\sqrt{\pi}}{2}", text)
+
+    def test_amsmath_environment_survives_verbatim(self):
+        document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "\\begin{equation}\n    F = G\\frac{m_1 m_2}{r^2}\n\\end{equation}\n"
+        )
+        text = "\n".join(p.text for p in document.paragraphs)
+        self.assertIn(r"G\frac{m_1 m_2}{r^2}", text)
+
     def test_footnote_paragraphs_are_justified_like_body_lists(self):
         document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
             "1. пункт списка\n\n"
