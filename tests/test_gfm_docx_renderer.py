@@ -407,6 +407,39 @@ class GfmDocxRendererTests(unittest.TestCase):
         )
         self.assertEqual(warnings, [])
 
+    def test_text_wrapped_cyrillic_converts_to_a_real_equation(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            r"$\text{путь}$"
+        )
+        self.assertEqual(len(_equations(document.paragraphs[0])), 1)
+        self.assertEqual(warnings, [])
+
+    def test_text_wrapped_cyrillic_inside_a_fraction_converts_with_no_warning(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            r"$v = \frac{\text{путь}}{\text{время}}$"
+        )
+        paragraph = document.paragraphs[0]
+        equations = _equations(paragraph)
+        self.assertEqual(len(equations), 1)
+        self.assertIn("<m:f>", paragraph._p.xml)
+        self.assertEqual(warnings, [])
+
+    def test_shell_variable_dollar_pair_still_warns(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "$HOME и $PATH"
+        )
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("Cyrillic", warnings[0])
+        self.assertEqual(_equations(document.paragraphs[0]), [])
+
+    def test_bare_cyrillic_alongside_text_command_still_warns(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            r"$\text{путь} + скорость$"
+        )
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("Cyrillic", warnings[0])
+        self.assertEqual(_equations(document.paragraphs[0]), [])
+
     def test_inline_math_becomes_a_real_word_equation(self):
         document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
             r"Энергия $E = mc^2$ покоя."

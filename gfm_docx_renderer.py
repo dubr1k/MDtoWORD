@@ -23,6 +23,13 @@ from latex_omml import UnsupportedLatexError, latex_to_omml
 
 _TASK_PREFIX = re.compile(r"^\[([ xX])\]\s+")
 _CYRILLIC = re.compile(r"[Ѐ-ӿ]")
+# Commands whose argument is literal text, e.g. "\text{путь}". Their content
+# is stripped before the bare-Cyrillic prose guard below runs, so a formula
+# that writes a Russian word the correct way -- inside \text{...} -- is not
+# mistaken for prose; Cyrillic left over *outside* one of these still warns.
+_TEXT_COMMAND = re.compile(
+    r"\\(?:text|mathrm|textrm|textnormal|operatorname)\{[^{}]*\}"
+)
 _BLACK = RGBColor(0, 0, 0)
 
 # ``latex_omml`` parses these environments itself, so they are passed through
@@ -404,10 +411,13 @@ class GfmDocxRenderer:
                 None,
             )
             return
-        if not display and _CYRILLIC.search(formula):
+        if not display and _CYRILLIC.search(_TEXT_COMMAND.sub("", formula)):
             # Cyrillic between single dollars is far more often prose (shell
             # variables, price ranges) than a formula; keep it verbatim and
-            # let _render_math_literal raise the "write \$" warning.
+            # let _render_math_literal raise the "write \$" warning. Cyrillic
+            # that only appears inside \text{...} (and friends) is exempt --
+            # that is exactly how real LaTeX writes a Russian word inside a
+            # formula -- so its contents are stripped before this check.
             self._render_math_literal(latex, display=False, markup=markup)
             return
         try:
