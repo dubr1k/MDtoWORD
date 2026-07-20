@@ -293,7 +293,7 @@ class ConverterGUI(QMainWindow):
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
         layout.setContentsMargins(20, 14, 20, 16)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
 
         self.title_label = QLabel()
         self.title_label.setObjectName("title-label")
