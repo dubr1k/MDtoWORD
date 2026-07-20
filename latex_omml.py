@@ -712,8 +712,12 @@ def _parse_command(tokens: list, index: int, style: Optional[str] = None,
     if name == "end":
         raise UnsupportedLatexError("\\end without a matching \\begin")
 
-    # Checked before the symbol table so an unimplemented construct never
-    # silently degrades into something that merely looks plausible.
+    # Checked before the remaining fallback tables (_SYMBOLS, _SPACING,
+    # _ESCAPED, _UPRIGHT_FUNCTIONS) -- not just "the symbol table" -- so an
+    # unimplemented construct never silently degrades into something that
+    # merely looks plausible. Everything above this point is a construct
+    # branch for something this module already implements; _NOT_YET only
+    # needs to stay disjoint from the tables it precedes.
     if name in _NOT_YET:
         raise UnsupportedLatexError(
             f"LaTeX {_NOT_YET[name]} is not supported yet: \\{name}"

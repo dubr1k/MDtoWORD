@@ -5,7 +5,18 @@ from docx import Document
 from docx.oxml.ns import nsmap as _nsmap
 from docx.oxml.ns import qn
 
-from latex_omml import _NOT_YET, UnsupportedLatexError, latex_to_omml
+from latex_omml import (
+    _ACCENTS,
+    _ESCAPED,
+    _LIMIT_OPERATORS,
+    _NARY,
+    _NOT_YET,
+    _SPACING,
+    _SYMBOLS,
+    _UPRIGHT_FUNCTIONS,
+    UnsupportedLatexError,
+    latex_to_omml,
+)
 
 # python-docx registers a custom lxml element class per known tag, but it
 # knows no `m:` (math) tags, so freshly built <m:...> elements come back as
@@ -23,6 +34,15 @@ except (ImportError, KeyError, AttributeError):
     pass
 
 MATH_NS = {"m": _nsmap["m"]}
+
+# The exact key set `_NOT_YET` is expected to have right now, written out by
+# hand -- not derived from `_NOT_YET` at runtime, which would recreate the
+# very self-referential hole the sweep test below would otherwise have on
+# its own (deleting a key here has to be a deliberate second edit).
+EXPECTED_NOT_YET = (
+    "matrix", "pmatrix", "bmatrix", "Bmatrix", "vmatrix", "Vmatrix",
+    "array", "cases", "substack", "choose", "over", "atop", "\\",
+)
 
 
 def xml_of(latex: str) -> str:
@@ -119,11 +139,45 @@ class LatexToOmmlTests(unittest.TestCase):
         being implemented has nowhere to hide.
         """
         self.assertTrue(_NOT_YET, "the unimplemented table must stay guarded")
+        # Deleting an entry from `_NOT_YET` above is not enough on its own --
+        # this table is iterated below, so the sweep can't notice a key that
+        # is simply gone. Pinning the expected keys against a frozen literal
+        # forces a deliberate edit here too.
+        self.assertEqual(sorted(_NOT_YET), sorted(EXPECTED_NOT_YET))
         for name in _NOT_YET:
             with self.subTest(command=name):
                 with self.assertRaises(UnsupportedLatexError) as caught:
                     latex_to_omml("\\" + name)
-                self.assertIn(name, str(caught.exception))
+                message = str(caught.exception)
+                self.assertIn(name, message)
+                # Not just the command name: the generic fallback message
+                # also contains that (`Unsupported LaTeX command: \foo`), so
+                # asserting only the name would not notice the `_NOT_YET`
+                # enforcement block itself being deleted. The category text
+                # only appears in the dedicated `_NOT_YET` message.
+                self.assertIn(_NOT_YET[name], message)
+
+    def test_not_yet_keys_are_disjoint_from_every_fallback_table(self):
+        """`_NOT_YET` is checked before several branches for constructs this
+        module already implements reach their own fallback tables -- not
+        merely "before the symbol table" as the old comment in
+        `_parse_command` claimed. If a name were ever added to `_NOT_YET`
+        that also lived in one of those tables, whichever branch runs first
+        would shadow the other, the same way a deleted `_NOT_YET` entry used
+        to fall through unnoticed (Finding 1). This pins the seven tables
+        `_NOT_YET` must stay disjoint from."""
+        fallback_tables = {
+            "_NARY": _NARY,
+            "_ACCENTS": _ACCENTS,
+            "_LIMIT_OPERATORS": _LIMIT_OPERATORS,
+            "_SYMBOLS": _SYMBOLS,
+            "_SPACING": _SPACING,
+            "_ESCAPED": _ESCAPED,
+            "_UPRIGHT_FUNCTIONS": _UPRIGHT_FUNCTIONS,
+        }
+        for table_name, table in fallback_tables.items():
+            with self.subTest(table=table_name):
+                self.assertEqual(set(_NOT_YET) & set(table), set())
 
     def test_reserved_and_dangling_constructs_raise(self):
         """Constructs that are no longer in `_NOT_YET` but must still fail:
@@ -256,6 +310,25 @@ class BigConstructTests(unittest.TestCase):
         # OMML -- it must not be swallowed into <m:lim>.
         self.assertEqual(
             _texts(element), ["lim", "x", "→", "0", "f", "(", "x", ")"])
+
+    def test_limsup_and_liminf_produce_lim_low_with_the_right_text(self):
+        """`\\limsup`/`\\liminf` left `_NOT_YET` and were implemented,
+        mapping to the upright run text "lim sup"/"lim inf" -- new behaviour
+        that gained zero coverage, the exact pattern these guards exist to
+        catch. `\\limsup_{n} a` must produce a `limLow` whose `<m:e>` holds
+        the text "lim sup", not a bare symbol with its limit dropped."""
+        element = latex_to_omml(r"\limsup_{n} a")
+        limit = element.find("m:limLow", MATH_NS)
+        self.assertIsNotNone(limit)
+        self.assertEqual(_tags(limit), ["e", "lim"])
+        self.assertEqual(_texts(limit.find("m:e", MATH_NS)), ["lim sup"])
+        self.assertEqual(_texts(limit.find("m:lim", MATH_NS)), ["n"])
+        self.assertEqual(_texts(element), ["lim sup", "n", "a"])
+
+        liminf_limit = latex_to_omml(r"\liminf_{n} a").find(
+            "m:limLow", MATH_NS)
+        self.assertIsNotNone(liminf_limit)
+        self.assertEqual(_texts(liminf_limit.find("m:e", MATH_NS)), ["lim inf"])
 
     def test_bare_limit_without_a_subscript_is_just_an_upright_run(self):
         element = latex_to_omml(r"\lim f")
@@ -467,6 +540,28 @@ class BigConstructTests(unittest.TestCase):
         self.assertEqual(
             [d.find("m:dPr/m:begChr", MATH_NS).get(qn("m:val"))
              for d in body.findall("m:oMath/m:d", MATH_NS)], ["(", "{"])
+
+    def test_every_nary_and_accent_entry_converts_without_raising(self):
+        """13 of these -- \\coprod, \\bigoplus, \\bigotimes, \\bigvee,
+        \\bigwedge, \\widehat, \\widetilde, \\dot, \\ddot, \\acute, \\grave,
+        \\check, \\breve -- had zero coverage: new-behaviour-with-no-test is
+        exactly the pattern the `_NOT_YET` guards exist to catch, and these
+        tables are no different just because they are already implemented."""
+        for name, character in _NARY.items():
+            with self.subTest(command=name):
+                nary = latex_to_omml("\\%s x" % name).find("m:nary", MATH_NS)
+                self.assertIsNotNone(nary)
+                self.assertEqual(
+                    nary.find("m:naryPr/m:chr", MATH_NS).get(qn("m:val")),
+                    character)
+
+        for name, character in _ACCENTS.items():
+            with self.subTest(command=name):
+                accent = latex_to_omml("\\%s{x}" % name).find("m:acc", MATH_NS)
+                self.assertIsNotNone(accent)
+                self.assertEqual(
+                    accent.find("m:accPr/m:chr", MATH_NS).get(qn("m:val")),
+                    character)
 
 
 if __name__ == "__main__":
