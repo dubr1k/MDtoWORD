@@ -75,7 +75,8 @@ class PreviewReport(BaseModel):
     sources_found: int = Field(
         description=(
             "How many Markdown files the inputs resolved to. "
-            "0 means the paths matched nothing."
+            "0 means the paths matched nothing — check the paths rather than "
+            "assuming there was nothing to do."
         )
     )
     previews: list[PreviewedFile] = Field(default_factory=list)

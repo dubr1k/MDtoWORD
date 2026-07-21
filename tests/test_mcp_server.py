@@ -202,6 +202,16 @@ class PreviewTests(McpServerTestCase):
         self.assertEqual(len(report["failed"]), 1)
         self.assertTrue(report["failed"][0]["source"].endswith("broken.md"))
 
+    async def test_paths_matching_nothing_report_zero_sources_found(self) -> None:
+        result = await self.call(
+            "preview_markdown", {"inputs": [str(self.root / "нет-такой-папки")]}
+        )
+
+        report = result.structuredContent
+        self.assertEqual(report["sources_found"], 0)
+        self.assertEqual(report["previews"], [])
+        self.assertEqual(report["failed"], [])
+
 
 class StdioProtocolTests(unittest.TestCase):
     def test_importing_the_server_writes_nothing_to_stdout(self) -> None:
