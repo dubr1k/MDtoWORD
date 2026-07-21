@@ -18,7 +18,7 @@
 - `mcp` идёт **только** в новый `requirements-mcp.txt`. `requirements.txt` и `environment.yml` не трогать — их попарное соответствие охраняет `tests/test_packaging.py`.
 - Существующие имена атрибутов `default_font_name`, `default_font_size`, `footnotes_heading` сохраняются: GUI присваивает их напрямую после конструирования (`app.py:436-438`, `510`, `514`).
 - Перезапись выходных файлов — молча, по решению из спека. Флаг `overwrite` не вводить.
-- Команда прогона тестов: `python -m pytest tests/ -q` из корня репозитория.
+- Команда прогона тестов: `.venv-macos-build/bin/python -m pytest tests/ -q` из корня репозитория. Именно этот интерпретатор, а не `python` из PATH: под anaconda-сборкой Qt GUI-тесты роняют интерпретатор segfault'ом, и на голом `python` набор выглядит «зелёным» лишь потому, что `test_drop_queue.py` и `test_gui_theme.py` до утверждений не доживают. В `.venv-macos-build` набор даёт 177 passed.
 
 ---
 
@@ -944,7 +944,9 @@ Expected: FAIL — `AttributeError: 'MarkdownToWordConverter' object has no attr
         source_path = Path(input_path)
         try:
             content = source_path.read_text(encoding="utf-8")
-        except OSError as error:
+        except (OSError, UnicodeDecodeError) as error:
+            # UnicodeDecodeError — подкласс ValueError, а не OSError:
+            # файл в CP1251 иначе улетел бы мимо контракта ConversionError.
             raise ConversionError(str(error)) from error
         return self.preview_content(content, source_path)
 ```
