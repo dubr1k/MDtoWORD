@@ -1,6 +1,2 @@
-python-docx==1.1.2
+-r requirements-core.txt
 PyQt6==6.10.2
-Pillow==12.0.0
-markdown-it-py==4.0.0
-mdit-py-plugins==0.5.0
-linkify-it-py==2.0.3

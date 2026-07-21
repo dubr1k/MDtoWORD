@@ -20,11 +20,22 @@ _REQUIREMENTS_TXT = _REPO_ROOT / "requirements.txt"
 
 
 def _parse_requirements(path: Path) -> dict[str, str]:
-    """Map package name -> pinned version from a ``pip``-style requirements file."""
+    """Map package name -> pinned version from a ``pip``-style requirements file.
+
+    Follows ``-r <file>`` includes recursively, resolving each included path
+    relative to the directory of the file that references it. This keeps the
+    guard working across a split requirements file (``requirements.txt``
+    includes ``requirements-core.txt``) by comparing the full effective
+    package set rather than choking on the include line.
+    """
     packages: dict[str, str] = {}
     for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
+            continue
+        if line.startswith("-r "):
+            included_path = path.parent / line[len("-r ") :].strip()
+            packages.update(_parse_requirements(included_path))
             continue
         name, separator, version = line.partition("==")
         if not separator:
