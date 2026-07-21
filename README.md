@@ -176,14 +176,18 @@ The supported amsmath environments are `equation`, `multline`, `gather`, `align`
 | Line alignment | `&` between the lines of a multi-line formula: `a &= b \\ c &= d` puts the `=` signs under one another |
 | Spacing and escapes | `\,`, `\;`, `\:`, `\!`, `\quad`, `\qquad`, `\{`, `\}`, `\%`, `\$`, `\&`, `\#`, `\_` |
 
-### What isn't there yet
+### Limits of support
 
-Only what OMML has no equivalent for:
+The four cases below are refused **deliberately**. This is not a to-do list: each one has a reason why no correct behaviour exists, so the converter refuses honestly instead of producing something that looks close but is wrong.
 
-- **vertical rules in `array`** — `\begin{array}{c|c}`: a Word matrix has no rule between columns, and dropping it silently would turn an augmented matrix into an ordinary one. Same for `p{5cm}`, `@{…}` and `\hline`;
-- **a lone `&` in a single-line formula** — there is nothing to align against, and `Tom & Jerry` inside `$…$` is far more likely a missing escape, so that `&` is refused: write `\&`;
-- **the plain-TeX spelling of environments** — `\matrix{…}`, `\cases{…}`: their grouping rules differ, so the `\begin{…} … \end{…}` form is required;
-- **two infix commands in one group** — `a \over b \over c`: that is ambiguous, and TeX itself rejects it. Brace the halves: `{{a \over b} \over c}`.
+| Case | Why it is refused | What to do |
+|---|---|---|
+| `\begin{array}{c\|c}` — a vertical rule | A Word matrix has no rule between columns, and dropping it silently is not an option: an augmented matrix would become an ordinary one. Same for `p{5cm}`, `@{…}`, `\hline` | Split into two matrices, or do without the rule |
+| `\matrix{…}`, `\cases{…}` — the plain-TeX spelling | A **different** construct with different grouping rules, not a synonym for the environment | Write `\begin{matrix} … \end{matrix}` |
+| `a \over b \over c` — two infix commands in a row | Ambiguous: there is no telling what divides what. TeX itself rejects it too | Brace the halves: `{{a \over b} \over c}` |
+| `$a & b$` — a lone `&` outside a multi-line formula | There is nothing to align against, and `Tom & Jerry` inside `$…$` is far more likely a missing escape than a formula | Write `\&` |
+
+That last case is a guard against a typo rather than a limitation: between the lines of a multi-line formula `&` works and aligns (`a &= b \\ c &= d`), as the table above shows.
 
 **Nothing is lost silently.** When a construct isn't supported, the formula goes into the document verbatim, character for character, in a monospace font — and the result dialog carries a warning naming exactly what failed:
 
@@ -193,18 +197,27 @@ Formula kept as text: "\begin{array}{c|c} a & b \end{array}"
  (only 'l', 'c' and 'r' columns are))
 ```
 
-### ⚠️ A literal dollar sign in prose
+### 💲 A literal dollar sign in prose
 
-Since `$` opens a formula, a literal dollar in running text should be written `\$` — the same convention Jupyter, Pandoc and MyST use.
+This is neither a bug nor a limitation but a convention — the same one Jupyter, Pandoc and MyST use. Since `$` opens a formula, a literal dollar in running text is written `\$`.
 
-Amounts like `$5` and `$10` are recognised as money and stay intact: a digit straight after a dollar does not open a formula. A pair of dollars around words, though — `Set $PATH and $HOME` — technically looks like a formula. That text is kept as written, but the converter warns you about it:
+So that you don't have to escape everything, the converter works out the common cases by itself:
+
+| You wrote | What you get | Warning |
+|---|---|---|
+| `It costs $5 and $10` | The text as written — a digit straight after a dollar does not open a formula | none |
+| `A price of \$100` | `A price of $100` | none |
+| `$E = mc^2$` | A real Word equation | none |
+| `$\text{path}$` | A real Word equation — a word inside `\text{}` is legitimate | none |
+| `Set $PATH and $HOME` | The text as written, nothing lost | yes — reads as prose, not as a formula |
+| `Переменные $HOME и $PATH` | The text as written | yes — Cyrillic outside `\text{}` |
+
+The last two rows are the only ones that reach the result dialog, and the text is kept character for character either way:
 
 ```
 Inline math "$PATH and $" contains no mathematical symbols and may be
 ordinary prose rather than a formula; write a literal "$" as "\$".
 ```
-
-Cyrillic inside `$…$` counts as another sign of ordinary prose — unless it is wrapped in `\text{}`, which is how a genuine formula writes a word.
 
 ---
 
@@ -512,14 +525,18 @@ $$a^2 + b^2 = c^2$$ (1)
 | Выравнивание строк | `&` между строками многострочной формулы: `a &= b \\ c &= d` — знаки `=` встают друг под другом |
 | Пробелы и экранирование | `\,`, `\;`, `\:`, `\!`, `\quad`, `\qquad`, `\{`, `\}`, `\%`, `\$`, `\&`, `\#`, `\_` |
 
-### Чего пока нет
+### Границы поддержки
 
-Того, чему в OMML просто нет соответствия:
+Четыре случая ниже отвергаются **намеренно**. Это не список «доделать позже»: у каждого есть причина, по которой правильного поведения просто не существует, — поэтому конвертер честно отказывается вместо того, чтобы выдать похожий, но неверный результат.
 
-- **вертикальные линейки в `array`** — `\begin{array}{c|c}`: в матрице Word линейки между колонками не бывает, а молча её выбросить нельзя — расширенная матрица превратилась бы в обычную. Туда же `p{5cm}`, `@{…}` и `\hline`;
-- **одиночный `&` в однострочной формуле** — выравнивать не с чем, а `Tom & Jerry` внутри `$…$` куда вероятнее забытое экранирование, поэтому такой `&` отвергается: пишите `\&`;
-- **plain-TeX-запись окружений** — `\matrix{…}`, `\cases{…}`: у них другие правила группировки, поэтому нужна форма `\begin{…} … \end{…}`;
-- **два инфикса в одной группе** — `a \over b \over c`: это неоднозначно, и сам TeX такое отвергает. Расставьте скобки: `{{a \over b} \over c}`.
+| Случай | Почему отвергается | Что делать |
+|---|---|---|
+| `\begin{array}{c\|c}` — вертикальная линейка | В матрице Word линейки между колонками не бывает, а молча выбросить её нельзя: расширенная матрица превратилась бы в обычную. Туда же `p{5cm}`, `@{…}`, `\hline` | Разбить на две матрицы или обойтись без линейки |
+| `\matrix{…}`, `\cases{…}` — plain-TeX-запись | Это **другая** конструкция с другими правилами группировки, а не синоним окружения | Писать `\begin{matrix} … \end{matrix}` |
+| `a \over b \over c` — два инфикса подряд | Неоднозначно: непонятно, что делить на что. Сам TeX такое тоже отвергает | Расставить скобки: `{{a \over b} \over c}` |
+| `$a & b$` — одиночный `&` вне многострочной формулы | Выравнивать не с чем. А `Tom & Jerry` внутри `$…$` куда вероятнее забытое экранирование, чем формула | Писать `\&` |
+
+Последний случай — не ограничение, а защита от опечатки: между строками многострочной формулы `&` работает и выравнивает (`a &= b \\ c &= d`), см. таблицу выше.
 
 **Ничего не теряется молча.** Если конструкция не поддерживается, формула попадает в документ буквально, символ в символ, моноширинным шрифтом — а в итоговом диалоге появляется предупреждение с точным указанием, что именно не удалось:
 
@@ -529,18 +546,27 @@ Formula kept as text: "\begin{array}{c|c} a & b \end{array}"
  (only 'l', 'c' and 'r' columns are))
 ```
 
-### ⚠️ Знак доллара в обычном тексте
+### 💲 Знак доллара в обычном тексте
 
-Раз `$` открывает формулу, буквальный доллар в прозе нужно писать как `\$` — та же договорённость, что в Jupyter, Pandoc и MyST.
+Это не ошибка и не ограничение, а договорённость — та же, что в Jupyter, Pandoc и MyST. Раз `$` открывает формулу, буквальный доллар в прозе пишется как `\$`.
 
-Суммы вида `$5` и `$10` распознаются как деньги и остаются нетронутыми: цифра сразу после доллара формулу не открывает. А вот пара долларов вокруг слов — `Set $PATH and $HOME` — формально выглядит как формула. Такой текст сохраняется как есть, но конвертер об этом предупреждает:
+Чтобы не заставлять экранировать вообще всё, конвертер разбирает частые случаи сам:
+
+| Вы написали | Что получится | Предупреждение |
+|---|---|---|
+| `Стоит $5 и $10` | Текст как есть — цифра сразу после доллара формулу не открывает | нет |
+| `Цена \$100` | `Цена $100` | нет |
+| `$E = mc^2$` | Настоящее уравнение Word | нет |
+| `$\text{путь}$` | Настоящее уравнение Word — кириллица внутри `\text{}` законна | нет |
+| `Set $PATH and $HOME` | Текст как есть, ничего не потеряно | есть — похоже на прозу, а не на формулу |
+| `Переменные $HOME и $PATH` | Текст как есть | есть — кириллица вне `\text{}` |
+
+Последние две строки — единственные, где что-то попадает в итоговый диалог, и текст при этом сохраняется дословно:
 
 ```
 Inline math "$PATH and $" contains no mathematical symbols and may be
 ordinary prose rather than a formula; write a literal "$" as "\$".
 ```
-
-Кириллица внутри `$…$` тоже считается признаком обычного текста — если только она не завёрнута в `\text{}`, как и положено настоящей формуле.
 
 ---
 
