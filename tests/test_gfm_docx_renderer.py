@@ -10,7 +10,7 @@ from docx.oxml.ns import qn
 from docx.shared import Pt
 from docx.shared import RGBColor
 
-from mdtoword.gfm_renderer import _MAX_REMOTE_IMAGE_BYTES, GfmDocxRenderer
+from mdtoword.gfm_renderer import _MAX_REMOTE_IMAGE_BYTES, GfmDocxRenderer, _is_remote_target
 
 
 _MATH_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
@@ -33,6 +33,33 @@ def _urlopen_response(data: bytes) -> MagicMock:
     context.__enter__.return_value = response
     context.__exit__.return_value = False
     return context
+
+
+class _FakeImageToken:
+    """Minimal stand-in for markdown-it's image token.
+
+    ``_append_image`` only ever reads ``.attrGet("src")`` and ``.content``,
+    so a full parse round-trip is unnecessary -- and, for a UNC target,
+    actively wrong: markdown-it percent-encodes any backslash in a link
+    destination (``\\host`` becomes ``%5Chost``), which would silently
+    launder away the exact string these tests need to exercise.
+    """
+
+    def __init__(self, src: str, alt: str = "diagram") -> None:
+        self._src = src
+        self.content = alt
+
+    def attrGet(self, name: str) -> str | None:
+        return self._src if name == "src" else None
+
+
+def _renderer_ready_for_direct_image_append(renderer: GfmDocxRenderer) -> GfmDocxRenderer:
+    """Put *renderer* in the state ``render()`` would, for calling
+    ``_append_image`` directly with a hand-built token."""
+    renderer.render("")
+    renderer.warnings = []
+    renderer._paragraph = renderer.document.add_paragraph()
+    return renderer
 
 
 # Every style GfmDocxRenderer applies to a paragraph somewhere in the
@@ -158,17 +185,87 @@ class GfmDocxRendererTests(unittest.TestCase):
         mock_urlopen.assert_not_called()
         self.assertEqual(warnings, [])
 
+    def test_is_remote_target_covers_http_unc_and_protocol_relative(self):
+        self.assertTrue(_is_remote_target("http://example.com/x.png"))
+        self.assertTrue(_is_remote_target("HTTPS://EXAMPLE.COM/X.PNG"))
+        self.assertTrue(_is_remote_target("//attacker.example.com/share/a.png"))
+        self.assertTrue(_is_remote_target(r"\\attacker.example.com\share\a.png"))
+        self.assertFalse(_is_remote_target("images/diagram.png"))
+        self.assertFalse(_is_remote_target("/absolute/local/diagram.png"))
+
+    def test_protocol_relative_target_not_fetched_when_disallowed(self):
+        renderer = _renderer_ready_for_direct_image_append(
+            GfmDocxRenderer("Arial", Pt(12), allow_remote_images=False)
+        )
+        target = "//attacker.example.com/share/a.png"
+
+        with patch("mdtoword.gfm_renderer.Path") as mock_path:
+            renderer._append_image(_FakeImageToken(target), None)
+
+        mock_path.assert_not_called()
+        self.assertEqual(
+            renderer.warnings,
+            [
+                f"Remote image not fetched: {target} "
+                "(network access is disabled; pass fetch_remote_images=true to allow it)"
+            ],
+        )
+        self.assertIn("[diagram]", renderer._paragraph.text)
+
+    def test_unc_target_not_fetched_when_disallowed(self):
+        renderer = _renderer_ready_for_direct_image_append(
+            GfmDocxRenderer("Arial", Pt(12), allow_remote_images=False)
+        )
+        target = r"\\attacker.example.com\share\a.png"
+
+        with patch("mdtoword.gfm_renderer.Path") as mock_path:
+            renderer._append_image(_FakeImageToken(target), None)
+
+        mock_path.assert_not_called()
+        self.assertEqual(
+            renderer.warnings,
+            [
+                f"Remote image not fetched: {target} "
+                "(network access is disabled; pass fetch_remote_images=true to allow it)"
+            ],
+        )
+        self.assertIn("[diagram]", renderer._paragraph.text)
+
+    def test_unc_target_still_uses_filesystem_when_remote_images_allowed(self):
+        # allow_remote_images defaults to True -- a UNC path must keep taking
+        # the plain filesystem branch exactly as it did before this gate
+        # existed, so a legitimate network share on Windows is unaffected.
+        renderer = _renderer_ready_for_direct_image_append(GfmDocxRenderer("Arial", Pt(12)))
+        target = r"\\attacker.example.com\share\a.png"
+
+        with patch("mdtoword.gfm_renderer.urlopen") as mock_urlopen:
+            renderer._append_image(_FakeImageToken(target), None)
+
+        mock_urlopen.assert_not_called()
+        self.assertEqual(renderer.warnings, [f"Image not found: {target}"])
+        self.assertIn("[diagram]", renderer._paragraph.text)
+
     def test_remote_image_over_size_cap_falls_back_with_warning(self):
         renderer = GfmDocxRenderer("Arial", Pt(12))
         oversized = b"x" * (_MAX_REMOTE_IMAGE_BYTES + 1)
+        response_context = _urlopen_response(oversized)
 
         with patch("mdtoword.gfm_renderer.urlopen") as mock_urlopen:
-            mock_urlopen.return_value = _urlopen_response(oversized)
+            mock_urlopen.return_value = response_context
             document, warnings = renderer.render(
                 "![diagram](https://example.invalid/x.png)"
             )
 
         mock_urlopen.assert_called_once()
+        # The mock's read() ignores what it is called with (it always
+        # returns the full ``oversized`` buffer regardless), so the only way
+        # to pin the actual memory bound -- reading at most one byte past the
+        # cap, never the whole response -- is to assert the call argument
+        # itself. Reverting to an unbounded ``response.read()`` would leave
+        # every other assertion here green.
+        response_context.__enter__.return_value.read.assert_called_once_with(
+            _MAX_REMOTE_IMAGE_BYTES + 1
+        )
         self.assertEqual(len(warnings), 1)
         self.assertIn("too large", warnings[0])
         self.assertIn(str(_MAX_REMOTE_IMAGE_BYTES), warnings[0])

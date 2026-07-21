@@ -118,6 +118,19 @@ def _set_style_font(style: ParagraphStyle, font_name: str) -> None:
     fonts.set(qn("w:cs"), font_name)
 
 
+def _is_remote_target(target: str) -> bool:
+    """Does this image target reach off the local filesystem?
+
+    Beyond the obvious ``http(s)`` URLs this covers UNC and protocol-relative
+    paths: on Windows ``//host/share/x.png`` is a UNC reference, and merely
+    asking ``Path.is_file()`` about it makes the SMB redirector connect out
+    and authenticate -- an outbound request and an NTLM credential leak from
+    what looks like a plain filesystem check.
+    """
+    lowered = target.lower()
+    return lowered.startswith(("http://", "https://")) or target.startswith(("//", "\\\\"))
+
+
 class GfmDocxRenderer:
     """Render a GFM token stream into a Word document."""
 
@@ -479,25 +492,30 @@ class GfmDocxRenderer:
         target = token.attrGet("src") or ""
         alt_text = token.content or "image"
         try:
-            if target.startswith(("http://", "https://")):
+            if _is_remote_target(target):
                 if not self.allow_remote_images:
-                    self.warnings.append(
+                    self._image_fallback(
+                        alt_text,
                         f"Remote image not fetched: {target} (network access is disabled; "
-                        "pass fetch_remote_images=true to allow it)"
+                        "pass fetch_remote_images=true to allow it)",
                     )
-                    self._append_text(f"[{alt_text}]", {"bold": False, "italic": False, "strike": False, "code": False}, None)
                     return
-                with urlopen(target, timeout=10) as response:
-                    image_bytes = response.read(_MAX_REMOTE_IMAGE_BYTES + 1)
-                if len(image_bytes) > _MAX_REMOTE_IMAGE_BYTES:
-                    self.warnings.append(
-                        f"Remote image too large: {target} (exceeds the "
-                        f"{_MAX_REMOTE_IMAGE_BYTES}-byte limit; not embedded)"
-                    )
-                    self._append_text(f"[{alt_text}]", {"bold": False, "italic": False, "strike": False, "code": False}, None)
+                if target.lower().startswith(("http://", "https://")):
+                    with urlopen(target, timeout=10) as response:
+                        image_bytes = response.read(_MAX_REMOTE_IMAGE_BYTES + 1)
+                    if len(image_bytes) > _MAX_REMOTE_IMAGE_BYTES:
+                        self._image_fallback(
+                            alt_text,
+                            f"Remote image too large: {target} (exceeds the "
+                            f"{_MAX_REMOTE_IMAGE_BYTES}-byte limit; not embedded)",
+                        )
+                        return
+                    self._paragraph.add_run().add_picture(BytesIO(image_bytes))
                     return
-                self._paragraph.add_run().add_picture(BytesIO(image_bytes))
-                return
+                # A UNC (``\\host\share``) or protocol-relative (``//host``)
+                # target with fetching enabled is not fetched over HTTP -- it
+                # falls through to the same filesystem check as any other
+                # path, exactly as it did before this gate existed.
 
             image_path = Path(target)
             if not image_path.is_absolute() and source_path is not None:
@@ -506,11 +524,25 @@ class GfmDocxRenderer:
                 raise FileNotFoundError(target)
             self._paragraph.add_run().add_picture(str(image_path))
         except FileNotFoundError:
-            self.warnings.append(f"Image not found: {target}")
-            self._append_text(f"[{alt_text}]", {"bold": False, "italic": False, "strike": False, "code": False}, None)
+            self._image_fallback(alt_text, f"Image not found: {target}")
         except Exception as error:
-            self.warnings.append(f"Image could not be rendered: {target} ({error})")
-            self._append_text(f"[{alt_text}]", {"bold": False, "italic": False, "strike": False, "code": False}, None)
+            self._image_fallback(alt_text, f"Image could not be rendered: {target} ({error})")
+
+    def _image_fallback(self, alt_text: str, warning: str) -> None:
+        """Record *warning* and insert ``[alt_text]`` in place of the image.
+
+        Every path that gives up on embedding an image -- a disabled or
+        skipped remote fetch, an oversized response, a missing file, or any
+        other render failure -- ends up here, so the fallback text and its
+        warning are appended together in exactly one place instead of being
+        repeated at each call site.
+        """
+        self.warnings.append(warning)
+        self._append_text(
+            f"[{alt_text}]",
+            {"bold": False, "italic": False, "strike": False, "code": False},
+            None,
+        )
 
     def _render_math(self, latex: str, display: bool, markup: str = "$") -> None:
         """Insert a real Word equation, falling back to verbatim text.
