@@ -80,9 +80,10 @@ class MarkdownToWordTests(McpServerTestCase):
         )
 
         report = result.structuredContent
-        # .resolve() on both sides: on macOS the tmp dir lives under /var,
-        # a symlink to /private/var, and _prepare_output_dir now resolves
-        # output_dir, so the reported path is the canonical form of destination.
+        # .resolve() с обеих сторон: на macOS временный каталог лежит под /var,
+        # который является симлинком на /private/var, а _prepare_output_dir
+        # теперь резолвит output_dir, поэтому путь в отчёте — каноническая
+        # форма destination.
         self.assertEqual(
             Path(report["converted"][0]["output"]).parent, destination.resolve()
         )
@@ -135,6 +136,21 @@ class MarkdownToWordTests(McpServerTestCase):
         self.assertEqual(report["converted"], [])
         self.assertEqual(report["failed"], [])
 
+    async def test_output_dir_is_not_created_when_nothing_matches(self) -> None:
+        destination = self.root / "out" / "deep"
+
+        result = await self.call(
+            "markdown_to_word",
+            {
+                "inputs": [str(self.root / "нет-такой-папки")],
+                "output_dir": str(destination),
+            },
+        )
+
+        report = result.structuredContent
+        self.assertEqual(report["sources_found"], 0)
+        self.assertFalse(destination.exists())
+
     async def test_empty_inputs_is_an_error_not_an_empty_success(self) -> None:
         result = await self.call("markdown_to_word", {"inputs": []})
 
@@ -173,6 +189,21 @@ class WordToMarkdownTests(McpServerTestCase):
         self.assertEqual(len(report["failed"]), 1)
         self.assertTrue(report["failed"][0]["source"].endswith("broken.docx"))
         self.assertTrue(report["failed"][0]["error"])
+
+    async def test_output_dir_is_not_created_when_nothing_matches(self) -> None:
+        destination = self.root / "out" / "deep"
+
+        result = await self.call(
+            "word_to_markdown",
+            {
+                "inputs": [str(self.root / "нет-такой-папки")],
+                "output_dir": str(destination),
+            },
+        )
+
+        report = result.structuredContent
+        self.assertEqual(report["sources_found"], 0)
+        self.assertFalse(destination.exists())
 
 
 class PreviewTests(McpServerTestCase):

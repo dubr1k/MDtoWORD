@@ -55,8 +55,14 @@ class ConversionReport(BaseModel):
             "assuming there was nothing to do."
         )
     )
-    converted: list[ConvertedFile] = Field(default_factory=list)
-    failed: list[FailedFile] = Field(default_factory=list)
+    converted: list[ConvertedFile] = Field(
+        default_factory=list,
+        description="Files that were converted successfully",
+    )
+    failed: list[FailedFile] = Field(
+        default_factory=list,
+        description="Files that could not be converted, each with the reason",
+    )
 
 
 class PreviewedFile(BaseModel):
@@ -79,8 +85,14 @@ class PreviewReport(BaseModel):
             "assuming there was nothing to do."
         )
     )
-    previews: list[PreviewedFile] = Field(default_factory=list)
-    failed: list[FailedFile] = Field(default_factory=list)
+    previews: list[PreviewedFile] = Field(
+        default_factory=list,
+        description="Files that were rendered in memory, each with its warnings",
+    )
+    failed: list[FailedFile] = Field(
+        default_factory=list,
+        description="Files that could not be previewed, each with the reason",
+    )
 
 
 def _resolve_inputs(inputs: list[str], mode: str) -> list[Path]:
@@ -121,14 +133,21 @@ def markdown_to_word(
     (`$inline$`, `$$display$$`, and amsmath environments) becomes native Word
     OMML equations rather than an image or plain text.
 
+    Rendering fetches any image referenced by an `http(s)` URL over the
+    network; a failed fetch (refused, timed out, unreachable) does not fail
+    the file — it is reported per URL in `warnings`.
+
     Each output is written next to its source unless `output_dir` is given.
-    Existing files at the target paths are overwritten without warning.
+    Existing files at the target paths are overwritten without warning. A
+    relative `output_dir` resolves against the server process's working
+    directory, not the caller's — pass an absolute path.
 
     Check `sources_found` in the result: 0 means the paths matched no
     Markdown files at all.
     """
     sources = _resolve_inputs(inputs, "md_to_word")
-    outputs = resolve_output_paths(sources, _prepare_output_dir(output_dir), ".docx")
+    output_directory = _prepare_output_dir(output_dir) if sources else None
+    outputs = resolve_output_paths(sources, output_directory, ".docx")
     converter = MarkdownToWordConverter(font_name, Pt(font_size), footnotes_heading)
     return _run_batch(sources, outputs, converter)
 
@@ -150,13 +169,16 @@ def word_to_markdown(
     original back.
 
     Each output is written next to its source unless `output_dir` is given.
-    Existing files at the target paths are overwritten without warning.
+    Existing files at the target paths are overwritten without warning. A
+    relative `output_dir` resolves against the server process's working
+    directory, not the caller's — pass an absolute path.
 
     Check `sources_found` in the result: 0 means the paths matched no
     .docx files at all.
     """
     sources = _resolve_inputs(inputs, "word_to_md")
-    outputs = resolve_output_paths(sources, _prepare_output_dir(output_dir), ".md")
+    output_directory = _prepare_output_dir(output_dir) if sources else None
+    outputs = resolve_output_paths(sources, output_directory, ".md")
     return _run_batch(sources, outputs, WordToMarkdownConverter())
 
 
@@ -174,7 +196,9 @@ def preview_markdown(
     math inside table cells. Use this before `markdown_to_word` when you want
     to fix the source first, or to inspect a document you must not overwrite.
 
-    Nothing is written to disk by this tool.
+    Nothing is written to disk by this tool, but rendering still fetches any
+    image referenced by an `http(s)` URL over the network; a failed fetch is
+    reported per URL in `warnings`, the same as `markdown_to_word`.
     """
     sources = _resolve_inputs(inputs, "md_to_word")
     converter = MarkdownToWordConverter(font_name, Pt(font_size), footnotes_heading)
