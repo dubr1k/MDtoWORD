@@ -3,9 +3,11 @@
 The result is a real Word equation that stays editable in Word's equation
 editor, not a text fallback with dollar signs around it.
 
-Only constructs listed in ``_parse_command`` are understood.  Anything else
-raises :class:`UnsupportedLatexError` naming the offending construct, so the
-caller can report it instead of silently emitting wrong output.
+Only constructs listed in ``_parse_command`` -- plus the infix commands and
+the ``\\`` line break, which ``_parse_lines`` has to handle itself because
+they split the sequence around them -- are understood.  Anything else raises
+:class:`UnsupportedLatexError` naming the offending construct, so the caller
+can report it instead of silently emitting wrong output.
 """
 
 from __future__ import annotations
@@ -120,16 +122,27 @@ _ROW_SEPARATOR = ("command", "\\\\")
 _END_COMMAND = ("command", "\\end")
 _RIGHT_COMMAND = ("command", "\\right")
 
-# Recognised, but deliberately not implemented here.  A later task adds these;
-# until then they must fail loudly rather than be dropped or mis-rendered.
-_NOT_YET = {
-    "matrix": "matrix", "pmatrix": "matrix", "bmatrix": "matrix",
-    "Bmatrix": "matrix", "vmatrix": "matrix", "Vmatrix": "matrix",
-    "array": "matrix", "cases": "matrix", "substack": "matrix",
-    "choose": "binomial",
-    "over": "fraction", "atop": "fraction",
-    "\\": "line break",
-}
+# Infix commands: each splits the group it appears in, taking everything to
+# its left as the numerator and everything to its right as the denominator.
+# That is why they cannot live in `_parse_command` with the prefix commands
+# -- by the time it runs, the numerator has already been parsed and emitted.
+_INFIX = frozenset({"over", "atop", "choose"})
+
+# `\begin{array}` column letters.  OMML's `m:mcJc` spells the same three
+# alignments; anything else in a column specification (`|` rules, `p{...}`
+# paragraph columns, `@{...}` inserts) has no OMML equivalent and is
+# refused rather than dropped.
+_COLUMN_JUSTIFICATION = {"l": "left", "c": "center", "r": "right"}
+
+# Plain-TeX spellings of environments this module supports only in their
+# LaTeX `\begin{...}` / `\end{...}` form.  `\matrix{a & b}` takes its rows
+# as a braced argument instead, which is a different construct with
+# different bracing rules, so these fail loudly -- naming the environment
+# form to use -- rather than being quietly treated as the environment.
+_ENVIRONMENT_ONLY = frozenset({
+    "matrix", "pmatrix", "bmatrix", "Bmatrix", "vmatrix", "Vmatrix",
+    "array", "cases",
+})
 
 _TOKEN_RE = re.compile(
     r"""
@@ -165,17 +178,25 @@ def _run(text: str, *, italic: bool = False, upright: bool = False,
     run = _el("r")
     if italic or upright or bold:
         properties = _el("rPr")
-        if upright:
+        # OOXML's CT_RPR makes <m:nor> and <m:sty> a *choice*: a run may
+        # carry one or the other, never both. `\mathbf` is upright and bold
+        # at once, so the two have to be reconciled rather than stacked --
+        # emitting both is rejected by the ISO/IEC 29500-4 schema. <m:sty>
+        # already encodes uprightness ("b" is bold upright, "bi" is bold
+        # italic), so whenever a style value applies it says everything
+        # <m:nor> would have, and <m:nor> is left for the unbolded literal
+        # text of \text{...} and friends.
+        if bold:
+            sty = _el("sty")
+            sty.set(qn("m:val"), "bi" if italic and not upright else "b")
+            properties.append(sty)
+        elif upright:
             nor = _el("nor")
             nor.set(qn("m:val"), "1")
             properties.append(nor)
-        if italic and not upright:
+        elif italic:
             sty = _el("sty")
-            sty.set(qn("m:val"), "bi" if bold else "i")
-            properties.append(sty)
-        elif bold:
-            sty = _el("sty")
-            sty.set(qn("m:val"), "b")
+            sty.set(qn("m:val"), "i")
             properties.append(sty)
         run.append(properties)
     text_element = _el("t")
@@ -310,16 +331,100 @@ def _limit_low(base: list[Any], limit: list[Any]) -> Any:
     return element
 
 
-def _matrix(rows: list[list[list[Any]]]) -> Any:
-    """<m:m>: rows of cells. Short rows are padded so Word sees a rectangle."""
+def _matrix(rows: list[list[list[Any]]],
+            alignments: list[str] | None = None) -> Any:
+    """<m:m>: rows of cells. Short rows are padded so Word sees a rectangle.
+
+    `alignments` is one OMML `m:mcJc` value per column, as `\\begin{array}`
+    spells it; without it Word centres every column, which is what the
+    matrix environments want.  A specification wider than the widest row
+    still shapes the matrix, so `\\begin{array}{ccc} a & b \\\\ c & d` keeps
+    the declared -- empty -- third column.
+    """
     width = max((len(row) for row in rows), default=0)
     matrix = _el("m")
+    if alignments:
+        width = max(width, len(alignments))
+        properties = _el("mPr")
+        columns = _el("mcs")
+        for justification in alignments:
+            column_properties = _el("mcPr")
+            count = _el("count")
+            count.set(qn("m:val"), "1")
+            column_properties.append(count)
+            column_justification = _el("mcJc")
+            column_justification.set(qn("m:val"), justification)
+            column_properties.append(column_justification)
+            column = _el("mc")
+            column.append(column_properties)
+            columns.append(column)
+        properties.append(columns)
+        # <m:mPr> is required to come first; Word rejects the part otherwise.
+        matrix.append(properties)
     for row in rows:
         row_element = _el("mr")
-        for column in range(width):
-            row_element.append(_wrap("e", row[column] if column < len(row) else []))
+        for column_index in range(width):
+            row_element.append(
+                _wrap("e", row[column_index] if column_index < len(row) else [])
+            )
         matrix.append(row_element)
     return matrix
+
+
+def _equation_array(lines: list[list[Any]]) -> Any:
+    r"""<m:eqArr>: stacked lines, Word's rendering of ``\\`` outside a matrix."""
+    array = _el("eqArr")
+    for line in lines:
+        array.append(_wrap("e", line))
+    return array
+
+
+def _mark_alignment(elements: list[Any], position: int) -> None:
+    r"""Make the element at `position` an alignment point, as ``&`` asks.
+
+    OMML spells an alignment point as ``<m:aln/>`` inside a run's
+    ``<m:rPr>`` -- the run that *starts* the aligned segment carries it, so
+    ``a &= b`` marks the ``=``.  ``<m:aln>`` is last in ``CT_RPR``'s
+    sequence, and `_run` only ever writes ``<m:nor>`` or ``<m:sty>`` before
+    it, so appending is always in schema order.
+
+    Only a run can carry the marker.  When the segment starts with anything
+    else -- a fraction, a matrix -- an empty run is inserted to hold it,
+    which adds no glyph of its own.
+    """
+    if position < len(elements) and elements[position].tag == qn("m:r"):
+        run = elements[position]
+        properties = run.find(qn("m:rPr"))
+        if properties is None:
+            properties = _el("rPr")
+            run.insert(0, properties)
+        properties.append(_el("aln"))
+        return
+    marker = _el("r")
+    properties = _el("rPr")
+    properties.append(_el("aln"))
+    marker.append(properties)
+    marker_text = _el("t")
+    # Explicitly empty rather than left unset, so the run serialises as
+    # <m:t></m:t> -- the shape Word writes -- instead of a bare <m:t/>.
+    marker_text.text = ""
+    marker.append(marker_text)
+    elements.insert(position, marker)
+
+
+def _infix_element(name: str, numerator: list[Any],
+                   denominator: list[Any]) -> Any:
+    r"""Build the element for ``\over``, ``\atop`` or ``\choose``.
+
+    ``\choose`` is exactly ``\binom`` written infix, so both go through the
+    same barless-fraction-in-parentheses shape.
+    """
+    if name == "over":
+        return _fraction(numerator, denominator)
+    stack = _fraction(numerator, denominator, no_bar=True)
+    if name == "atop":
+        return stack
+    return _delimiter("(", ")", [stack])
 
 
 # --------------------------------------------------------------------------
@@ -377,13 +482,86 @@ def _skip_space(tokens: list, index: int) -> int:
 # --------------------------------------------------------------------------
 
 
-def _parse_sequence(tokens: list, index: int, stop: Stop = None,
-                    style: Optional[str] = None) -> tuple:
-    """Parse tokens into elements until `stop`, a closing brace, or the end.
+def _stop_at_segment_end(stop: Stop) -> Stop:
+    r"""`stop`, widened to also terminate on ``\\`` and ``&``.
 
-    Returns (elements, index) with `index` left ON the terminating token.
+    A construct whose operand runs to the end of the enclosing sequence --
+    an n-ary operator's body, an infix command's denominator -- must not
+    reach past either separator.  A line break plainly ends it, and so does
+    an alignment point: in ``\sum_i a_i &= b`` the sum's operand is ``a_i``,
+    with ``&`` starting the next aligned segment rather than being swept
+    into the sum.
     """
+
+    def combined(kind: str, value: str) -> bool:
+        if kind == "amp" or (kind, value) == _ROW_SEPARATOR:
+            return True
+        return stop is not None and stop(kind, value)
+
+    return combined
+
+
+def _apply_alignments(lines: list, marks: list) -> None:
+    r"""Turn each recorded ``&`` position into an OMML alignment point.
+
+    A single line means there is no second line to align against, and a
+    lone ``&`` in an ordinary formula is far more likely a literal
+    ampersand that wanted escaping -- ``Tom & Jerry`` inside ``$…$`` -- so
+    that is refused rather than turned into an invisible marker.
+    """
+    if len(lines) == 1 and marks[0]:
+        raise UnsupportedLatexError(
+            "'&' is only meaningful inside a matrix environment or between "
+            "the lines of a multi-line formula; write a literal '&' as '\\&'"
+        )
+    for line, positions in zip(lines, marks):
+        # Descending, so an inserted marker run cannot shift a position
+        # that has not been applied yet.
+        for position in sorted(positions, reverse=True):
+            _mark_alignment(line, position)
+
+
+def _parse_infix(tokens: list, index: int, numerator: list, stop: Stop,
+                 style: Optional[str] = None) -> tuple:
+    r"""Consume an infix command and the denominator that follows it.
+
+    `numerator` is whatever the enclosing sequence has parsed so far.  The
+    denominator runs to the end of that sequence, so it takes the same
+    `stop` -- widened to stop at a line break as well, since ``\\`` ends the
+    fraction rather than being swallowed into its bottom half.
+    """
+    name = tokens[index][1][1:]
+    denominator, index = _parse_lines(
+        tokens, index + 1, _stop_at_segment_end(stop), style, allow_infix=False,
+    )
+    return [_infix_element(name, numerator, denominator[0])], index
+
+
+def _parse_lines(tokens: list, index: int, stop: Stop = None,
+                 style: Optional[str] = None, allow_infix: bool = True) -> tuple:
+    r"""Parse tokens until `stop`, a closing brace, or the end, splitting on ``\\``.
+
+    Returns (lines, index) with `index` left ON the terminating token and at
+    least one line -- an empty sequence gives ``[[]]``.  A trailing ``\\``
+    ends the last line rather than starting an empty one, matching how
+    `_read_matrix_rows` treats the same token.
+
+    An ``&`` marks an alignment point on the segment that follows it, so
+    ``a &= b \\ c &= d`` lines its two ``=`` up.  A matrix consumes ``&`` as
+    a cell break through `stop` long before it reaches here, so only the
+    equation-array sense of the token is left by this point.  Without a
+    ``\\`` there is nothing to align against, and a lone ``&`` is far more
+    likely a literal ampersand that wanted escaping -- so that still fails
+    loudly rather than becoming an invisible marker.
+
+    `allow_infix` is cleared for the right-hand side of an infix command, so
+    ``a \over b \over c`` is refused as ambiguous the way TeX itself refuses
+    it, instead of silently picking one of the two readings.
+    """
+    lines: list = []
+    marks: list = []
     elements: list = []
+    positions: list = []
     while index < len(tokens):
         kind, value = tokens[index]
         if kind == "space":
@@ -393,13 +571,54 @@ def _parse_sequence(tokens: list, index: int, stop: Stop = None,
             break
         if stop is not None and stop(kind, value):
             break
+        if kind == "amp":
+            # Where the *next* element will land, so `a &= b` marks the `=`.
+            positions.append(len(elements))
+            index += 1
+            continue
+        if (kind, value) == _ROW_SEPARATOR:
+            lines.append(elements)
+            marks.append(positions)
+            elements = []
+            positions = []
+            index += 1
+            continue
+        if kind == "command" and value[1:] in _INFIX:
+            if not allow_infix:
+                raise UnsupportedLatexError(
+                    f"Two infix commands in one group: \\{value[1:]} follows "
+                    "another one; brace the halves, as in "
+                    "{{a \\over b} \\over c}"
+                )
+            elements, index = _parse_infix(tokens, index, elements, stop, style)
+            continue
         atom, index = _parse_atom(tokens, index, style, stop)
         sub, sup, index = _read_scripts(tokens, index, style)
         if sub is None and sup is None:
             elements.extend(atom)
         else:
             elements.append(_script(atom, sub, sup))
-    return elements, index
+    lines.append(elements)
+    marks.append(positions)
+    if len(lines) > 1 and not lines[-1]:
+        lines.pop()
+        marks.pop()
+    _apply_alignments(lines, marks)
+    return lines, index
+
+
+def _parse_sequence(tokens: list, index: int, stop: Stop = None,
+                    style: Optional[str] = None) -> tuple:
+    r"""Parse tokens into elements until `stop`, a closing brace, or the end.
+
+    Returns (elements, index) with `index` left ON the terminating token.
+    A sequence broken by ``\\`` becomes a single equation array holding one
+    line each, so the caller still gets one flat element list.
+    """
+    lines, index = _parse_lines(tokens, index, stop, style)
+    if len(lines) == 1:
+        return lines[0], index
+    return [_equation_array(lines)], index
 
 
 def _parse_group(tokens: list, index: int, style: Optional[str] = None) -> tuple:
@@ -536,7 +755,8 @@ def _parse_atom(tokens: list, index: int, style: Optional[str] = None,
         )
     if kind == "amp":
         raise UnsupportedLatexError(
-            "'&' is only meaningful inside a matrix environment"
+            "'&' is only meaningful inside a matrix environment or between "
+            "the lines of a multi-line formula; write a literal '&' as '\\&'"
         )
     raise UnsupportedLatexError(f"Could not read {value!r} in the formula")
 
@@ -565,10 +785,51 @@ def _read_delimiter(tokens: list, index: int, command: str) -> tuple:
     raise UnsupportedLatexError(f"Not a delimiter after \\{command}: {value!r}")
 
 
+def _read_column_alignments(tokens: list, index: int) -> tuple:
+    r"""Read `\begin{array}`'s ``{lcr}`` argument. Returns (alignments, index).
+
+    Only ``l``, ``c`` and ``r`` survive: OMML's matrix has no vertical rule,
+    no fixed-width paragraph column and no ``@{...}`` insert, so honouring
+    ``{c|c}`` is impossible and dropping the rule would turn an augmented
+    matrix into an ordinary one.  Both are refused instead.
+    """
+    missing = UnsupportedLatexError(
+        "\\begin{array} needs a column specification, as in \\begin{array}{cc}"
+    )
+    probe = _skip_space(tokens, index)
+    if probe >= len(tokens) or tokens[probe][0] != "open":
+        raise missing
+    specification, index = _read_raw_group(tokens, probe)
+    alignments = []
+    for character in specification:
+        if character.isspace():
+            continue
+        justification = _COLUMN_JUSTIFICATION.get(character)
+        if justification is None:
+            raise UnsupportedLatexError(
+                f"Column specification is not supported in \\begin{{array}}: "
+                f"{character!r} (only 'l', 'c' and 'r' columns are)"
+            )
+        alignments.append(justification)
+    if not alignments:
+        raise missing
+    return alignments, index
+
+
 def _parse_environment(tokens: list, index: int,
                        style: Optional[str] = None) -> tuple:
     """Parse `\\begin{env} ... \\end{env}`. Returns (elements, index)."""
     environment, index = _read_raw_group(tokens, index)
+    if environment == "array":
+        alignments, index = _read_column_alignments(tokens, index)
+        rows, index = _read_matrix_rows(tokens, index, environment, style)
+        used = max((len(row) for row in rows), default=0)
+        if used > len(alignments):
+            raise UnsupportedLatexError(
+                f"\\begin{{array}} declares {len(alignments)} columns but a "
+                f"row uses {used}"
+            )
+        return [_matrix(rows, alignments)], index
     if environment not in _MATRIX_DELIMITERS:
         raise UnsupportedLatexError(
             f"LaTeX environment is not supported: \\begin{{{environment}}}"
@@ -661,9 +922,11 @@ def _parse_command(tokens: list, index: int, style: Optional[str] = None,
 
     if name in _NARY:
         # The limits bind to the operator itself; everything after them, up
-        # to the end of the enclosing construct, is the operand.
+        # to the end of the enclosing construct -- or the next line break,
+        # whichever comes first -- is the operand.
         sub, sup, index = _read_scripts(tokens, index, style)
-        body, index = _parse_sequence(tokens, index, stop=stop, style=style)
+        body, index = _parse_sequence(
+            tokens, index, stop=_stop_at_segment_end(stop), style=style)
         return [_nary(_NARY[name], sub, sup, body)], index
 
     if name in _LIMIT_OPERATORS:
@@ -691,6 +954,19 @@ def _parse_command(tokens: list, index: int, style: Optional[str] = None,
         bottom, index = _parse_group(tokens, index, style)
         return [_delimiter("(", ")", [_fraction(top, bottom, no_bar=True)])], index
 
+    if name == "substack":
+        # One column, one line per `\\` -- the shape a stacked n-ary limit
+        # such as `\sum_{\substack{i < j \\ i \in S}}` needs.
+        probe = _skip_space(tokens, index)
+        if probe >= len(tokens) or tokens[probe][0] != "open":
+            raise UnsupportedLatexError(
+                "\\substack needs a brace group, as in \\substack{a \\\\ b}"
+            )
+        lines, index = _parse_lines(tokens, probe + 1, style=style)
+        if index >= len(tokens) or tokens[index][0] != "close":
+            raise UnsupportedLatexError("Unbalanced braces: unclosed '{'")
+        return [_matrix([[line] for line in lines])], index + 1
+
     if name == "left":
         begin, index = _read_delimiter(tokens, index, "left")
         children, index = _parse_sequence(
@@ -712,15 +988,32 @@ def _parse_command(tokens: list, index: int, style: Optional[str] = None,
     if name == "end":
         raise UnsupportedLatexError("\\end without a matching \\begin")
 
-    # Checked before the remaining fallback tables (_SYMBOLS, _SPACING,
-    # _ESCAPED, _UPRIGHT_FUNCTIONS) -- not just "the symbol table" -- so an
-    # unimplemented construct never silently degrades into something that
-    # merely looks plausible. Everything above this point is a construct
-    # branch for something this module already implements; _NOT_YET only
-    # needs to stay disjoint from the tables it precedes.
-    if name in _NOT_YET:
+    # `_parse_lines` intercepts both of these wherever they can carry
+    # meaning, so reaching them here means they turned up somewhere that
+    # takes a single atom -- `x^\\`, `\frac\over x` -- where TeX has nothing
+    # to attach them to either. Say which half is missing rather than
+    # falling through to the generic "unsupported command" below.
+    if name == "\\":
         raise UnsupportedLatexError(
-            f"LaTeX {_NOT_YET[name]} is not supported yet: \\{name}"
+            "A line break \\\\ has nothing to break here"
+        )
+
+    if name in _INFIX:
+        raise UnsupportedLatexError(
+            f"\\{name} needs an expression on both sides of it"
+        )
+
+    # Checked before the remaining fallback tables (_SYMBOLS, _SPACING,
+    # _ESCAPED, _UPRIGHT_FUNCTIONS) -- not just "the symbol table" -- so a
+    # construct this module handles only in another form never silently
+    # degrades into something that merely looks plausible. Everything above
+    # this point is a construct branch for something already implemented;
+    # _ENVIRONMENT_ONLY only needs to stay disjoint from the tables it
+    # precedes.
+    if name in _ENVIRONMENT_ONLY:
+        raise UnsupportedLatexError(
+            f"\\{name} works only as an environment here: write "
+            f"\\begin{{{name}}} ... \\end{{{name}}}"
         )
 
     if name in _SYMBOLS:

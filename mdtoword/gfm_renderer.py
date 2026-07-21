@@ -577,12 +577,22 @@ class GfmDocxRenderer:
         lets a construct nested inside it -- a matrix inside an
         ``equation``, say -- survive intact rather than being cut apart by
         the ``\\``/``&`` splitting below, which knows nothing about
-        environment boundaries. Only if that whole-body conversion fails
-        do the remaining, genuinely multi-line environments fall back to
-        splitting on ``\\`` into one centred equation per line, since OMML
-        has no equivalent of amsmath's ``&`` column alignment;
-        ``equation`` is single-equation by definition and is never split
-        this way. If any line of a split fails to convert, the whole
+        environment boundaries. ``latex_omml`` renders both separators
+        itself -- ``\\`` as a stacked equation array, ``&`` as an OMML
+        alignment point -- so a multi-line environment normally converts
+        whole and stays ONE Word equation: ``gather`` and ``multline`` with
+        their lines stacked, ``align`` and friends with their lines stacked
+        *and* aligned on the ``&`` column, which is what all of them mean.
+
+        Only if that whole-body conversion fails does the environment fall
+        back to splitting on ``\\`` into one centred equation per line,
+        with ``&`` stripped. The case that still reaches it is a
+        *single-line* ``&`` environment: with no second line to align
+        against, ``latex_omml`` reads a lone ``&`` as a probable unescaped
+        ampersand and refuses it, so stripping it here is what keeps
+        ``\begin{align}a &= b\end{align}`` an equation instead of verbatim
+        text. ``equation`` is single-equation by definition and is never
+        split this way. If any line of a split fails to convert, the whole
         environment is kept verbatim so nothing of the source is lost to a
         partial rendering.
         """

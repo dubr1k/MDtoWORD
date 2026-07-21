@@ -324,7 +324,12 @@ class GfmDocxRendererTests(unittest.TestCase):
         )
         self.assertEqual(warnings, [])
 
-    def test_amsmath_align_becomes_one_equation_per_line(self):
+    def test_amsmath_align_becomes_one_equation_aligned_on_its_ampersands(self):
+        r"""``align`` converts whole: one centred Word equation holding an
+        equation array, with an alignment point on the run each ``&``
+        precedes -- so the two ``=`` line up the way LaTeX draws them,
+        instead of the environment being cut into one paragraph per line
+        with the alignment discarded."""
         document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
             "\\begin{align}\n"
             "a &= b + c \\\\\n"
@@ -332,10 +337,19 @@ class GfmDocxRendererTests(unittest.TestCase):
             "\\end{align}\n"
         )
         with_equations = [p for p in document.paragraphs if _equations(p)]
-        self.assertEqual(len(with_equations), 2)
-        for paragraph in with_equations:
-            self.assertEqual(paragraph.alignment, WD_ALIGN_PARAGRAPH.CENTER)
-            self.assertEqual(len(_equations(paragraph)), 1)
+        self.assertEqual(len(with_equations), 1)
+        paragraph = with_equations[0]
+        self.assertEqual(paragraph.alignment, WD_ALIGN_PARAGRAPH.CENTER)
+        self.assertEqual(len(_equations(paragraph)), 1)
+        lines = _equations(paragraph)[0].findall(f"{_MATH_NS}eqArr/{_MATH_NS}e")
+        self.assertEqual(len(lines), 2)
+        for line in lines:
+            aligned = [
+                "".join(t.text or "" for t in run.iter(f"{_MATH_NS}t"))
+                for run in line.iter(f"{_MATH_NS}r")
+                if run.find(f"{_MATH_NS}rPr/{_MATH_NS}aln") is not None
+            ]
+            self.assertEqual(aligned, ["="])
         self.assertEqual(warnings, [])
 
     def test_amsmath_matrix_environment_is_a_single_equation(self):
@@ -394,7 +408,7 @@ class GfmDocxRendererTests(unittest.TestCase):
             "\\end{alignat}\n"
         )
         with_equations = [p for p in document.paragraphs if _equations(p)]
-        self.assertEqual(len(with_equations), 2)
+        self.assertEqual(len(with_equations), 1)
         combined_text = "".join(
             _equation_text(equation)
             for paragraph in with_equations
@@ -459,6 +473,101 @@ class GfmDocxRendererTests(unittest.TestCase):
         self.assertEqual(len(with_equations), 1)
         self.assertEqual(len(_equations(with_equations[0])), 1)
         self.assertIn("<m:m>", with_equations[0]._p.xml)
+        self.assertEqual(warnings, [])
+
+    def test_display_math_line_break_becomes_one_stacked_equation(self):
+        r"""``\\`` no longer needs an amsmath environment around it: a
+        display formula that uses it stays a single Word equation whose
+        lines stack, rather than being kept as text with a warning."""
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "$$\na = b \\\\ c = d\n$$\n"
+        )
+        with_equations = [p for p in document.paragraphs if _equations(p)]
+        self.assertEqual(len(with_equations), 1)
+        equation = _equations(with_equations[0])[0]
+        lines = equation.findall(f"{_MATH_NS}eqArr/{_MATH_NS}e")
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(warnings, [])
+
+    def test_inline_math_line_break_converts_without_a_warning(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "Обе строки: $a \\\\ b$ здесь.\n"
+        )
+        self.assertEqual(len(_equations(document.paragraphs[0])), 1)
+        self.assertEqual(warnings, [])
+
+    def test_amsmath_gather_becomes_one_equation_with_stacked_lines(self):
+        r"""``gather`` has no ``&`` alignment, so the whole body now
+        converts in one piece -- a single Word equation whose ``\\`` lines
+        stack -- instead of falling back to one paragraph per line."""
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "\\begin{gather}\n"
+            "a + b \\\\\n"
+            "c + d\n"
+            "\\end{gather}\n"
+        )
+        with_equations = [p for p in document.paragraphs if _equations(p)]
+        self.assertEqual(len(with_equations), 1)
+        lines = _equations(with_equations[0])[0].findall(
+            f"{_MATH_NS}eqArr/{_MATH_NS}e"
+        )
+        self.assertEqual(
+            ["".join(t.text or "" for t in line.iter(f"{_MATH_NS}t"))
+             for line in lines],
+            ["a+b", "c+d"],
+        )
+        self.assertEqual(warnings, [])
+
+    def test_single_line_align_still_goes_through_the_split_fallback(self):
+        r"""A one-line ``align`` has no second line to align against, so
+        ``latex_omml`` refuses its ``&`` as a probable unescaped ampersand
+        and the whole-body attempt fails. That is what keeps the ``\\``
+        splitting path alive: it strips the ``&`` and still produces one
+        equation rather than dropping the environment to verbatim text."""
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "\\begin{align}a &= b\\end{align}\n"
+        )
+        with_equations = [p for p in document.paragraphs if _equations(p)]
+        self.assertEqual(len(with_equations), 1)
+        text = _equation_text(_equations(with_equations[0])[0])
+        for expected in ("a", "=", "b"):
+            self.assertIn(expected, text)
+        self.assertEqual(warnings, [])
+
+    def test_display_array_environment_becomes_an_equation(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "$$\n\\begin{array}{lr} a & b \\\\ c & d \\end{array}\n$$\n"
+        )
+        with_equations = [p for p in document.paragraphs if _equations(p)]
+        self.assertEqual(len(with_equations), 1)
+        self.assertIn("<m:m>", with_equations[0]._p.xml)
+        self.assertIn('<m:mcJc m:val="left"/>', with_equations[0]._p.xml)
+        self.assertEqual(warnings, [])
+
+    def test_array_with_a_vertical_rule_is_kept_as_text_and_warns(self):
+        r"""The one array shape OMML cannot express must still land in the
+        document character for character, with a warning naming why."""
+        source = r"\begin{array}{c|c} a & b \end{array}"
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            f"$$\n{source}\n$$\n"
+        )
+        text = "\n".join(p.text for p in document.paragraphs)
+        self.assertIn(source, text)
+        self.assertEqual(
+            [eq for p in document.paragraphs for eq in _equations(p)], [])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("Formula kept as text", warnings[0])
+        self.assertIn("|", warnings[0])
+
+    def test_display_choose_and_substack_convert_without_warning(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "$$\\sum_{\\substack{i \\\\ j}} {n \\choose k}$$\n"
+        )
+        with_equations = [p for p in document.paragraphs if _equations(p)]
+        self.assertEqual(len(with_equations), 1)
+        xml = with_equations[0]._p.xml
+        self.assertIn("<m:nary>", xml)
+        self.assertIn('<m:type m:val="noBar"/>', xml)
         self.assertEqual(warnings, [])
 
     def test_unsupported_display_environment_is_kept_byte_for_byte(self):
@@ -665,8 +774,9 @@ class GfmDocxRendererTests(unittest.TestCase):
             reopened = Document(str(path))
 
         equations = [eq for p in reopened.paragraphs for eq in _equations(p)]
-        # inline + display + equation + two align lines
-        self.assertEqual(len(equations), 5)
+        # inline + display + equation + the align environment, which is one
+        # equation holding both of its lines rather than one per line.
+        self.assertEqual(len(equations), 4)
 
         self.assertEqual(len(warnings), 1)
         self.assertIn("qedsymbol", warnings[0])
