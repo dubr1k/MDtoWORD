@@ -334,8 +334,8 @@ claude mcp add mdtoword --scope user \
 | `preview_markdown` | Renders Markdown in memory and reports only what would not survive the conversion. Writes nothing. |
 
 All three take paths, never file contents, and accept files and directories
-mixed together; directories are scanned recursively. Existing output files are
-overwritten without warning.
+mixed together; directories are scanned recursively. Where the two converting
+tools write, they overwrite an existing output file without warning.
 
 ---
 
@@ -732,8 +732,9 @@ claude mcp add mdtoword --scope user \
 | `preview_markdown` | Рендерит Markdown в памяти и сообщает только о том, что не переживёт конвертацию. Ничего не записывает на диск. |
 
 Все три инструмента принимают пути, а не содержимое файлов, и работают с файлами
-и папками вперемешку; папки просматриваются рекурсивно. Существующие выходные
-файлы перезаписываются без предупреждения.
+и папками вперемешку; папки просматриваются рекурсивно. Там, где два
+конвертирующих инструмента пишут, существующий выходной файл перезаписывается
+без предупреждения.
 
 ---
 
