@@ -1019,7 +1019,7 @@ Expected: FAIL — `Unknown tool: preview_markdown`. Тест `StdioProtocolTest
 
 ```python
 class PreviewedFile(BaseModel):
-    """Результат холостого рендеринга одного файла."""
+    """One Markdown file rendered without writing anything."""
 
     source: str = Field(description="Absolute path of the input file")
     warnings: list[str] = Field(
@@ -1029,7 +1029,7 @@ class PreviewedFile(BaseModel):
 
 
 class PreviewReport(BaseModel):
-    """Итог пакетного предпросмотра."""
+    """Result of previewing a batch of Markdown files."""
 
     sources_found: int = Field(
         description=(
