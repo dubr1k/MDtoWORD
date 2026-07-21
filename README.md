@@ -347,6 +347,13 @@ All three take paths, never file contents, and accept files and directories
 mixed together; directories are scanned recursively. Where the two converting
 tools write, they overwrite an existing output file without warning.
 
+`markdown_to_word` and `preview_markdown` do not fetch images referenced by an
+`http(s)` URL by default — such an image becomes its alt text plus a warning.
+Pass `fetch_remote_images=true` to enable fetching; only do this for Markdown
+from a source you trust, since the server would otherwise reach out to
+whatever URL the Markdown names, using its own network access. The GUI is
+unaffected and keeps fetching remote images as before.
+
 ---
 
 ## 🛠️ Development
@@ -759,6 +766,14 @@ Code запускает сервер в рабочей директории ва
 и папками вперемешку; папки просматриваются рекурсивно. Там, где два
 конвертирующих инструмента пишут, существующий выходной файл перезаписывается
 без предупреждения.
+
+По умолчанию `markdown_to_word` и `preview_markdown` не загружают изображения
+по `http(s)`-ссылке — такое изображение превращается в альтернативный текст с
+предупреждением. Чтобы включить загрузку, передайте `fetch_remote_images=true`,
+и делайте это только для Markdown из источника, которому доверяете: иначе
+сервер обратится по любому адресу, указанному в документе, используя
+собственный сетевой доступ. На графический интерфейс это ограничение не
+распространяется — он, как и раньше, загружает удалённые изображения.
 
 ---
 
