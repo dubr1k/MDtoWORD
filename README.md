@@ -363,6 +363,90 @@ root when your images live elsewhere (e.g. a shared-assets layout rooted
 outside `inputs`). The GUI has no such restriction — a human already chose
 the file there.
 
+### Parameters
+
+`markdown_to_word`:
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `inputs: list[str]` | required | Files and/or directories, mixed together; directories are scanned recursively for `.md` / `.markdown` files. |
+| `output_dir: str \| None` | `None` | Where outputs go. `None` writes each output next to its source file. |
+| `font_name: str` | `"Times New Roman"` | Body font of the produced document. |
+| `font_size: float` | `12` | Body size in points; headings scale from it. |
+| `footnotes_heading: str` | `"Footnotes"` | Title of the generated footnotes section. |
+| `fetch_remote_images: bool` | `False` | Allow fetching images referenced by an `http(s)` URL. |
+| `image_root: str \| None` | `None` | Widen the directory local images may be read from. Defaults to a root derived from `inputs` (see above). |
+
+`word_to_markdown` takes only `inputs` (required) and `output_dir`, with the
+same meanings as above; directories are scanned recursively for `.docx`.
+
+`preview_markdown` takes the same parameters as `markdown_to_word` **except
+it has no `output_dir`** — it never writes a file, so there is nowhere for
+one to go.
+
+### What the tools return
+
+`markdown_to_word` and `word_to_markdown` return:
+
+```
+sources_found: int
+converted: [{ source, output, warnings: [...] }]
+failed:    [{ source, error }]
+```
+
+`preview_markdown` returns the same shape with `previews: [{ source,
+warnings: [...] }]` in place of `converted`, and no `output` field — there is
+nothing written to point to.
+
+A few things worth knowing before reading these:
+
+- **`sources_found` is the field to check first.** It is the count of
+  supported files the `inputs` resolved to. `0` means the paths matched
+  nothing — that is a signal to check the paths, not to conclude there was
+  nothing to do.
+- A failing file does not stop the batch: it lands in `failed` while the
+  rest convert normally. A partial success — some entries in `converted`,
+  some in `failed` — is a normal outcome, not a special case, so read both
+  lists rather than assuming one will be empty.
+- `warnings` are non-fatal: the output file was still written. They flag
+  what could not survive the conversion — an image that is missing, blocked
+  by `image_root`, or not fetched because it is remote; LaTeX that could not
+  become an OMML equation; math inside a table cell.
+
+### Examples
+
+Paths should be absolute. A relative path resolves against the **server's**
+working directory (the repository checkout), not the agent's project
+directory.
+
+1. Convert a whole folder: ask your agent to convert `docs/` and it calls
+   `markdown_to_word(inputs=["/abs/path/docs"])`.
+2. Check a document before converting: ask your agent to check `README.md`
+   for conversion issues and it calls
+   `preview_markdown(inputs=["/abs/path/README.md"])` — nothing is written,
+   you only get the warnings.
+3. Convert with different typography into a build directory: ask your agent
+   to convert `docs/` using Georgia at 14 pt into `build/` and it calls
+   `markdown_to_word(inputs=["/abs/path/docs"], output_dir="/abs/path/build", font_name="Georgia", font_size=14)`.
+4. Convert a document whose images live in a shared assets folder outside
+   `inputs`: ask your agent to convert it with the project root as the image
+   root and it adds `image_root="/abs/path/project"`.
+5. Pull text back out of a Word file: ask your agent to extract the text of
+   `report.docx` and it calls
+   `word_to_markdown(inputs=["/abs/path/report.docx"])` — remember this
+   direction is lossy, so do not expect the original formatting back.
+
+### Troubleshooting
+
+| Symptom | Cause and fix |
+| --- | --- |
+| Server fails to start: `ModuleNotFoundError: No module named 'mdtoword'` | The project runs from a checkout, not an installed package. The client must set `cwd` to the repository (JSON config) or `PYTHONPATH` (the `claude mcp add` form). |
+| `sources_found: 0` and empty lists | The paths matched no supported file: a wrong path, or a directory with no `.md`/`.markdown` files (or `.docx`, for `word_to_markdown`). |
+| A warning says an image was not fetched | Remote fetching is off by default. Pass `fetch_remote_images=true`, and only for Markdown you trust. |
+| A warning says an image is outside the allowed root | The image lives outside the paths passed in `inputs`. Pass `image_root` to widen it. |
+| Output written somewhere unexpected | A relative `output_dir` resolved against the server's working directory. Pass an absolute path. |
+| `tests/test_mcp_server.py` skips entirely | The `mcp` SDK is not installed in the interpreter running the tests. Install `requirements-mcp.txt`. |
+
 ---
 
 ## 🛠️ Development
@@ -793,6 +877,89 @@ Code запускает сервер в рабочей директории ва
 общие ассеты в отдельной папке), передайте `image_root`, чтобы расширить
 разрешённый корень. На графический интерфейс это ограничение не
 распространяется — там файл уже выбрал человек.
+
+### Параметры
+
+`markdown_to_word`:
+
+| Параметр | По умолчанию | Значение |
+| --- | --- | --- |
+| `inputs: list[str]` | обязателен | Файлы и/или папки вперемешку; папки просматриваются рекурсивно на файлы `.md` / `.markdown`. |
+| `output_dir: str \| None` | `None` | Куда писать результат. `None` означает «рядом с каждым исходным файлом». |
+| `font_name: str` | `"Times New Roman"` | Шрифт основного текста итогового документа. |
+| `font_size: float` | `12` | Размер основного текста в пунктах; заголовки масштабируются от него. |
+| `footnotes_heading: str` | `"Footnotes"` | Заголовок раздела со сносками. |
+| `fetch_remote_images: bool` | `False` | Разрешить загрузку изображений по `http(s)`-ссылке. |
+| `image_root: str \| None` | `None` | Расширить директорию, из которой разрешено читать локальные изображения. По умолчанию выводится из `inputs` (см. выше). |
+
+`word_to_markdown` принимает только `inputs` (обязателен) и `output_dir` с тем
+же смыслом, что и выше; папки просматриваются рекурсивно на файлы `.docx`.
+
+`preview_markdown` принимает те же параметры, что и `markdown_to_word`,
+**кроме `output_dir`** — он ничего не пишет на диск, и писать попросту некуда.
+
+### Что возвращают инструменты
+
+`markdown_to_word` и `word_to_markdown` возвращают:
+
+```
+sources_found: int
+converted: [{ source, output, warnings: [...] }]
+failed:    [{ source, error }]
+```
+
+`preview_markdown` возвращает ту же форму, но вместо `converted` —
+`previews: [{ source, warnings: [...] }]`, и без поля `output`: указывать не
+на что, ведь ничего не записано.
+
+Что важно понимать при чтении этих полей:
+
+- **`sources_found` стоит проверять в первую очередь.** Это количество
+  подходящих файлов, в которые развернулись `inputs`. `0` значит, что пути
+  не совпали ни с чем — это повод перепроверить пути, а не считать работу
+  выполненной.
+- Отказ одного файла не останавливает пакет: он попадает в `failed`, а
+  остальные конвертируются как обычно. Частичный успех — часть записей в
+  `converted`, часть в `failed` — обычный исход, а не особый случай, поэтому
+  читайте оба списка, а не только один.
+- `warnings` не фатальны: файл всё равно записан. Они отмечают то, что не
+  пережило конвертацию — отсутствующее изображение, изображение, заблокированное
+  `image_root`, или не загруженное, потому что оно удалённое; LaTeX, который
+  не удалось превратить в уравнение OMML; формулу внутри ячейки таблицы.
+
+### Примеры
+
+Пути должны быть абсолютными. Относительный путь разрешается относительно
+рабочей директории **сервера** (репозитория), а не проекта агента.
+
+1. Конвертировать всю папку: попросите агента сконвертировать `docs/`, и он
+   вызовет `markdown_to_word(inputs=["/abs/path/docs"])`.
+2. Проверить документ перед конвертацией: попросите агента проверить
+   `README.md` на проблемы конвертации, и он вызовет
+   `preview_markdown(inputs=["/abs/path/README.md"])` — ничего не записывается,
+   вы получаете только предупреждения.
+3. Конвертировать с другой типографикой в отдельную папку сборки: попросите
+   агента сконвертировать `docs/` шрифтом Georgia размером 14 пт в `build/`,
+   и он вызовет
+   `markdown_to_word(inputs=["/abs/path/docs"], output_dir="/abs/path/build", font_name="Georgia", font_size=14)`.
+4. Конвертировать документ, чьи изображения лежат в общей папке ассетов вне
+   `inputs`: попросите агента сконвертировать его с корнем проекта в качестве
+   корня изображений, и он добавит `image_root="/abs/path/project"`.
+5. Вытащить текст обратно из Word-файла: попросите агента извлечь текст
+   `report.docx`, и он вызовет
+   `word_to_markdown(inputs=["/abs/path/report.docx"])` — и помните, что это
+   направление с потерями: не ждите обратно исходное форматирование.
+
+### Решение проблем
+
+| Симптом | Причина и решение |
+| --- | --- |
+| Сервер не запускается: `ModuleNotFoundError: No module named 'mdtoword'` | Проект запускается из чекаута, а не установлен как пакет. Клиент должен указать `cwd` на репозиторий (JSON-конфигурация) или `PYTHONPATH` (форма `claude mcp add`). |
+| `sources_found: 0` и пустые списки | Пути не совпали ни с одним подходящим файлом: опечатка в пути, или папка без файлов `.md`/`.markdown` (либо `.docx` для обратного направления). |
+| Предупреждение о том, что изображение не загружено | Загрузка удалённых изображений по умолчанию выключена. Передайте `fetch_remote_images=true`, и только для Markdown, которому доверяете. |
+| Предупреждение о том, что изображение вне разрешённого корня | Изображение лежит вне путей, переданных в `inputs`. Передайте `image_root`, чтобы расширить корень. |
+| Результат записан не туда, куда ожидали | Относительный `output_dir` разрешился относительно рабочей директории сервера. Передайте абсолютный путь. |
+| `tests/test_mcp_server.py` целиком пропускается | В интерпретаторе, которым запускаются тесты, не установлен SDK `mcp`. Установите `requirements-mcp.txt`. |
 
 ---
 
