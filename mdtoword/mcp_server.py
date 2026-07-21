@@ -28,7 +28,7 @@ mcp = FastMCP("mdtoword")
 
 
 class ConvertedFile(BaseModel):
-    """Один успешно сконвертированный файл."""
+    """One successfully converted file."""
 
     source: str = Field(description="Absolute path of the input file")
     output: str = Field(description="Absolute path of the file that was written")
@@ -39,14 +39,14 @@ class ConvertedFile(BaseModel):
 
 
 class FailedFile(BaseModel):
-    """Один файл, который сконвертировать не удалось."""
+    """One file that could not be converted."""
 
     source: str = Field(description="Absolute path of the input file")
     error: str = Field(description="Why this file could not be converted")
 
 
 class ConversionReport(BaseModel):
-    """Итог пакетной конвертации."""
+    """The result of a batch conversion."""
 
     sources_found: int = Field(
         description=(
@@ -72,7 +72,9 @@ def _prepare_output_dir(output_dir: str | None) -> Path | None:
     """Подготовить каталог назначения; None означает «рядом с исходником»."""
     if output_dir is None:
         return None
-    directory = Path(output_dir).expanduser()
+    # resolve() — иначе относительный output_dir оставит ConvertedFile.output
+    # относительным, вопреки его же Field(description="Absolute path ...")
+    directory = Path(output_dir).expanduser().resolve()
     directory.mkdir(parents=True, exist_ok=True)
     return directory
 

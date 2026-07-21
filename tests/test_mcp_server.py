@@ -6,6 +6,7 @@
 """
 
 from pathlib import Path
+import os
 import tempfile
 import unittest
 
@@ -79,8 +80,28 @@ class MarkdownToWordTests(McpServerTestCase):
         )
 
         report = result.structuredContent
-        self.assertEqual(Path(report["converted"][0]["output"]).parent, destination)
+        # .resolve() on both sides: on macOS the tmp dir lives under /var,
+        # a symlink to /private/var, and _prepare_output_dir now resolves
+        # output_dir, so the reported path is the canonical form of destination.
+        self.assertEqual(
+            Path(report["converted"][0]["output"]).parent, destination.resolve()
+        )
         self.assertTrue((destination / "doc.docx").is_file())
+
+    async def test_relative_output_dir_is_resolved_to_an_absolute_path(self) -> None:
+        self.addCleanup(os.chdir, os.getcwd())
+        (self.root / "doc.md").write_text("# Заголовок", encoding="utf-8")
+        os.chdir(self.root)
+
+        result = await self.call(
+            "markdown_to_word",
+            {"inputs": ["doc.md"], "output_dir": "out"},
+        )
+
+        report = result.structuredContent
+        output = Path(report["converted"][0]["output"])
+        self.assertTrue(output.is_absolute())
+        self.assertTrue(output.is_file())
 
     async def test_nonfatal_warnings_are_reported_per_file(self) -> None:
         (self.root / "doc.md").write_text("![diagram](missing.png)", encoding="utf-8")
