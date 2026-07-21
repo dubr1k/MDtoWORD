@@ -370,6 +370,73 @@ class DropFileListTests(unittest.TestCase):
             self.assertEqual(window.current_language, "ru")
             self.assertEqual(window.converter.footnotes_heading, "Сноски")
 
+    def test_failing_batch_conversion_shows_localized_message_in_english(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(
+                str(Path(directory) / "theme.ini"),
+                QSettings.Format.IniFormat,
+            )
+            window = ConverterGUI(theme_manager=ThemeManager(settings=settings))
+            window.current_language = "en"
+            source = Path(directory) / "source.md"
+            source.write_text("# a", encoding="utf-8")
+            # Каталог вместо файла на месте выходного .docx: python-docx не
+            # может писать поверх директории (тот же приём, что и в
+            # tests/test_converters.py).
+            blocked = Path(directory) / "source.docx"
+            blocked.mkdir()
+            window._add_sources([str(source)])
+
+            with patch("mdtoword.app.QMessageBox.warning") as mock_warning:
+                window._convert_files()
+
+            self.assertEqual(mock_warning.call_count, 1)
+            message = mock_warning.call_args.args[2]
+            self.assertIn("Conversion failed:", message)
+            self.assertNotIn("Ошибка", message)
+
+    def test_failing_batch_conversion_shows_localized_message_in_russian(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(
+                str(Path(directory) / "theme.ini"),
+                QSettings.Format.IniFormat,
+            )
+            window = ConverterGUI(theme_manager=ThemeManager(settings=settings))
+            source = Path(directory) / "source.md"
+            source.write_text("# a", encoding="utf-8")
+            blocked = Path(directory) / "source.docx"
+            blocked.mkdir()
+            window._add_sources([str(source)])
+
+            with patch("mdtoword.app.QMessageBox.warning") as mock_warning:
+                window._convert_files()
+
+            self.assertEqual(mock_warning.call_count, 1)
+            message = mock_warning.call_args.args[2]
+            self.assertIn("Ошибка при конвертации:", message)
+
+    def test_successful_conversion_warning_is_prefixed_with_source_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(
+                str(Path(directory) / "theme.ini"),
+                QSettings.Format.IniFormat,
+            )
+            window = ConverterGUI(theme_manager=ThemeManager(settings=settings))
+            source = Path(directory) / "source.md"
+            source.write_text("![diagram](missing.png)", encoding="utf-8")
+            window._add_sources([str(source)])
+
+            with patch("mdtoword.app.QMessageBox.warning") as mock_warning, patch(
+                "mdtoword.app.QMessageBox.information"
+            ) as mock_info:
+                window._convert_files()
+
+            self.assertEqual(mock_info.call_count, 0)
+            self.assertEqual(mock_warning.call_count, 1)
+            message = mock_warning.call_args.args[2]
+            self.assertIn(source.name, message)
+            self.assertIn("Image not found: missing.png", message)
+
 
 if __name__ == "__main__":
     unittest.main()
