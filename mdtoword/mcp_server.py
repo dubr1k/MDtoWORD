@@ -122,6 +122,7 @@ def markdown_to_word(
     font_name: str = "Times New Roman",
     font_size: float = 12,
     footnotes_heading: str = "Footnotes",
+    fetch_remote_images: bool = False,
 ) -> ConversionReport:
     """Convert Markdown files to Word .docx documents.
 
@@ -133,9 +134,11 @@ def markdown_to_word(
     (`$inline$`, `$$display$$`, and amsmath environments) becomes native Word
     OMML equations rather than an image or plain text.
 
-    Rendering fetches any image referenced by an `http(s)` URL over the
-    network; a failed fetch (refused, timed out, unreachable) does not fail
-    the file — it is reported per URL in `warnings`.
+    Images referenced by an `http(s)` URL are not fetched by default; such an
+    image becomes its alt text plus a warning instead. Pass
+    `fetch_remote_images=true` to enable fetching — do this only for Markdown
+    from a source you trust, since the server fetches using its own network
+    access.
 
     Each output is written next to its source unless `output_dir` is given.
     Existing files at the target paths are overwritten without warning. A
@@ -148,7 +151,9 @@ def markdown_to_word(
     sources = _resolve_inputs(inputs, "md_to_word")
     output_directory = _prepare_output_dir(output_dir) if sources else None
     outputs = resolve_output_paths(sources, output_directory, ".docx")
-    converter = MarkdownToWordConverter(font_name, Pt(font_size), footnotes_heading)
+    converter = MarkdownToWordConverter(
+        font_name, Pt(font_size), footnotes_heading, allow_remote_images=fetch_remote_images
+    )
     return _run_batch(sources, outputs, converter)
 
 
@@ -188,6 +193,7 @@ def preview_markdown(
     font_name: str = "Times New Roman",
     font_size: float = 12,
     footnotes_heading: str = "Footnotes",
+    fetch_remote_images: bool = False,
 ) -> PreviewReport:
     """Check what Markdown would lose in Word, without writing any file.
 
@@ -196,12 +202,16 @@ def preview_markdown(
     math inside table cells. Use this before `markdown_to_word` when you want
     to fix the source first, or to inspect a document you must not overwrite.
 
-    Nothing is written to disk by this tool, but rendering still fetches any
-    image referenced by an `http(s)` URL over the network; a failed fetch is
-    reported per URL in `warnings`, the same as `markdown_to_word`.
+    Nothing is written to disk by this tool. Images referenced by an `http(s)`
+    URL are not fetched by default either, so the default call makes no
+    network requests at all. Pass `fetch_remote_images=true` to enable
+    fetching — do this only for Markdown from a source you trust, since the
+    server fetches using its own network access.
     """
     sources = _resolve_inputs(inputs, "md_to_word")
-    converter = MarkdownToWordConverter(font_name, Pt(font_size), footnotes_heading)
+    converter = MarkdownToWordConverter(
+        font_name, Pt(font_size), footnotes_heading, allow_remote_images=fetch_remote_images
+    )
     report = PreviewReport(sources_found=len(sources))
     for source in sources:
         try:

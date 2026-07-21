@@ -9,6 +9,7 @@ from pathlib import Path
 import os
 import tempfile
 import unittest
+from unittest.mock import MagicMock, patch
 
 from docx import Document
 
@@ -21,6 +22,25 @@ try:
 except ImportError:  # pragma: no cover
     client_session = None
     server = None
+
+
+# The smallest well-formed PNG, used so a mocked remote fetch has something
+# valid to embed rather than tripping the renderer's own error handling.
+_MINIMAL_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+    b"\x00\x00\x05\x00\x01\x05-\xb4\x00\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+def _urlopen_response(data: bytes) -> MagicMock:
+    """Mock of ``urlopen(...)``'s return value, usable as a context manager."""
+    response = MagicMock()
+    response.read.return_value = data
+    context = MagicMock()
+    context.__enter__.return_value = response
+    context.__exit__.return_value = False
+    return context
 
 
 def setUpModule() -> None:
@@ -169,6 +189,19 @@ class MarkdownToWordTests(McpServerTestCase):
 
         self.assertTrue(result.isError)
 
+    async def test_default_does_not_fetch_remote_images(self) -> None:
+        (self.root / "doc.md").write_text(
+            "![diagram](https://example.invalid/x.png)", encoding="utf-8"
+        )
+
+        with patch("mdtoword.gfm_renderer.urlopen") as mock_urlopen:
+            result = await self.call("markdown_to_word", {"inputs": [str(self.root)]})
+
+        mock_urlopen.assert_not_called()
+        warnings = result.structuredContent["converted"][0]["warnings"]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("fetch_remote_images", warnings[0])
+
 
 class WordToMarkdownTests(McpServerTestCase):
     def write_docx(self, name: str) -> Path:
@@ -255,6 +288,34 @@ class PreviewTests(McpServerTestCase):
         self.assertEqual(report["sources_found"], 0)
         self.assertEqual(report["previews"], [])
         self.assertEqual(report["failed"], [])
+
+    async def test_default_does_not_fetch_remote_images(self) -> None:
+        (self.root / "doc.md").write_text(
+            "![diagram](https://example.invalid/x.png)", encoding="utf-8"
+        )
+
+        with patch("mdtoword.gfm_renderer.urlopen") as mock_urlopen:
+            result = await self.call("preview_markdown", {"inputs": [str(self.root)]})
+
+        mock_urlopen.assert_not_called()
+        warnings = result.structuredContent["previews"][0]["warnings"]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("fetch_remote_images", warnings[0])
+
+    async def test_fetch_remote_images_true_fetches(self) -> None:
+        (self.root / "doc.md").write_text(
+            "![diagram](https://example.invalid/x.png)", encoding="utf-8"
+        )
+
+        with patch("mdtoword.gfm_renderer.urlopen") as mock_urlopen:
+            mock_urlopen.return_value = _urlopen_response(_MINIMAL_PNG)
+            result = await self.call(
+                "preview_markdown",
+                {"inputs": [str(self.root)], "fetch_remote_images": True},
+            )
+
+        mock_urlopen.assert_called_once()
+        self.assertEqual(result.structuredContent["previews"][0]["warnings"], [])
 
 
 class StdioProtocolTests(unittest.TestCase):
