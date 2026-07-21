@@ -2,7 +2,6 @@ import sys
 from typing import Any, cast
 from pathlib import Path
 
-from docx import Document
 from docx.shared import Pt
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent, QIcon, QMouseEvent
@@ -13,124 +12,13 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from .converters import (
+    ConversionError,
+    MarkdownToWordConverter,
+    WordToMarkdownConverter,
+)
 from .workflow import discover_sources, resolve_output_paths
-from .gfm_renderer import GfmDocxRenderer
 from .theme import ThemeManager
-
-
-class MarkdownToWordConverter:
-    """Convert GFM input to a Word document."""
-
-    def __init__(self):
-        self.default_font_name = "Times New Roman"
-        self.default_font_size = Pt(12)
-        self.footnotes_heading = "Footnotes"
-
-    def convert_content(
-        self, content: str, output_path: str | Path, source_path: Path | None = None
-    ) -> tuple[bool, str]:
-        """Convert Markdown text and save it at *output_path*."""
-        try:
-            document, warnings = GfmDocxRenderer(
-                self.default_font_name, self.default_font_size, self.footnotes_heading
-            ).render(content, source_path=source_path)
-            document.save(str(output_path))
-            message = "Успешно конвертировано"
-            if warnings:
-                message += "\n\nWarnings:\n" + "\n".join(warnings)
-            return True, message
-        except Exception as error:
-            return False, f"Ошибка при конвертации: {error}"
-
-    def convert_file(
-        self, input_path: str | Path, output_path: str | Path
-    ) -> tuple[bool, str]:
-        """Read and convert a Markdown source file."""
-        try:
-            source_path = Path(input_path)
-            return self.convert_content(
-                source_path.read_text(encoding="utf-8"), output_path, source_path
-            )
-        except Exception as error:
-            return False, f"Ошибка при конвертации: {error}"
-
-
-class WordToMarkdownConverter:
-    """Класс для конвертации Word в Markdown"""
-
-    def __init__(self):
-        pass
-
-    def convert_file(self, input_path, output_path):
-        """Конвертирует Word файл в Markdown"""
-        try:
-            doc = Document(input_path)
-
-            markdown_lines = []
-
-            for paragraph in doc.paragraphs:
-                text = paragraph.text
-
-                # Пропускаем пустые параграфы
-                if not text.strip():
-                    markdown_lines.append('')
-                    continue
-
-                # Определяем уровень заголовка по стилю
-                heading_level = 0
-                style_name = (paragraph.style.name or "") if paragraph.style is not None else ""
-                if style_name.startswith('Heading '):
-                    try:
-                        heading_level = int(style_name.split()[-1])
-                        if 1 <= heading_level <= 6:
-                            text = '#' * heading_level + ' ' + text
-                    except ValueError:
-                        pass  # Если не удалось определить уровень, оставляем как есть
-
-                # Если не заголовок, обрабатываем как обычный текст
-                if heading_level == 0:
-                    # Простое форматирование текста (жирный, курсив) через run'ы
-                    formatted_text = ""
-                    for run in paragraph.runs:
-                        run_text = run.text
-                        if run.bold and run.italic:
-                            formatted_text += f'***{run_text}***'
-                        elif run.bold:
-                            formatted_text += f'**{run_text}**'
-                        elif run.italic:
-                            formatted_text += f'*{run_text}*'
-                        elif run_text.strip().startswith('`') and run_text.strip().endswith('`'):
-                            formatted_text += f'`{run_text}`'
-                        else:
-                            formatted_text += run_text
-
-                    text = formatted_text
-
-                markdown_lines.append(text)
-
-            # Обработка таблиц (упрощённо)
-            for table in doc.tables:
-                if table.rows:
-                    markdown_lines.append('')  # Пустая строка перед таблицей
-                    # Заголовки (первый ряд)
-                    header_cells = [cell.text.strip() for cell in table.rows[0].cells]
-                    markdown_lines.append('| ' + ' | '.join(header_cells) + ' |')
-                    # Разделитель
-                    markdown_lines.append('| ' + ' | '.join(['---'] * len(header_cells)) + ' |')
-                    # Остальные строки
-                    for row in table.rows[1:]:
-                        row_cells = [cell.text.strip() for cell in row.cells]
-                        markdown_lines.append('| ' + ' | '.join(row_cells) + ' |')
-                    markdown_lines.append('')  # Пустая строка после таблицы
-
-            # Записываем результат в файл
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(markdown_lines))
-
-            return True, "Успешно конвертировано"
-
-        except Exception as e:
-            return False, f"Ошибка при конвертации: {str(e)}"
 
 
 def _dropped_local_paths(event: Any | None) -> list[str]:
@@ -240,6 +128,8 @@ class ConverterGUI(QMainWindow):
                 "empty_text": "Введите текст для конвертации", "save_as": "Сохранить как",
                 "errors": "Конвертация завершена с ошибками", "result": "Готово: {success}\nОшибок: {errors}",
                 "footnotes_heading": "Сноски",
+                "converted_ok": "Успешно конвертировано",
+                "convert_failed": "Ошибка при конвертации: {error}",
             },
             "en": {
                 "title_md": "Markdown → Word", "title_word": "Word → Markdown",
@@ -261,6 +151,8 @@ class ConverterGUI(QMainWindow):
                 "empty_text": "Enter text to convert", "save_as": "Save as",
                 "errors": "Conversion completed with errors", "result": "Complete: {success}\nErrors: {errors}",
                 "footnotes_heading": "Footnotes",
+                "converted_ok": "Converted successfully",
+                "convert_failed": "Conversion failed: {error}",
             },
         }
         if isinstance(self.converter, MarkdownToWordConverter):
@@ -585,13 +477,15 @@ class ConverterGUI(QMainWindow):
             for index, source in enumerate(queue, start=1):
                 self.status_label.setText(self._text["converting"].format(filename=source.name))
                 QApplication.processEvents()
-                success, message = self.converter.convert_file(source, outputs[source])
-                if success:
-                    success_count += 1
-                    if "Warnings:" in message:
-                        warnings.append(f"{source.name}: {message.split('Warnings:', 1)[1].strip()}")
+                try:
+                    file_warnings = self.converter.convert_file(source, outputs[source])
+                except ConversionError as error:
+                    errors.append(
+                        f"{source.name}: " + self._text["convert_failed"].format(error=error)
+                    )
                 else:
-                    errors.append(f"{source.name}: {message}")
+                    success_count += 1
+                    warnings.extend(f"{source.name}: {warning}" for warning in file_warnings)
                 self.progress.setValue(index)
                 QApplication.processEvents()
 
@@ -622,11 +516,17 @@ class ConverterGUI(QMainWindow):
         if not output_path:
             return
         output = Path(output_path).with_suffix(".docx")
-        success, message = cast(MarkdownToWordConverter, self.converter).convert_content(content, output)
-        if success:
-            QMessageBox.information(self, self.windowTitle(), message)
-        else:
-            QMessageBox.critical(self, self._text["errors"], message)
+        try:
+            warnings = cast(MarkdownToWordConverter, self.converter).convert_content(content, output)
+        except ConversionError as error:
+            QMessageBox.critical(
+                self, self._text["errors"], self._text["convert_failed"].format(error=error)
+            )
+            return
+        message = self._text["converted_ok"]
+        if warnings:
+            message += "\n\n" + "\n".join(warnings)
+        QMessageBox.information(self, self.windowTitle(), message)
 
 
 def main():
