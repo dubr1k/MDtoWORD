@@ -16,10 +16,23 @@ try:
     from mcp.shared.memory import (
         create_connected_server_and_client_session as client_session,
     )
-except ImportError:  # pragma: no cover
-    raise unittest.SkipTest("SDK mcp не установлен; см. requirements-mcp.txt")
 
-from mdtoword.mcp_server import mcp as server
+    from mdtoword.mcp_server import mcp as server
+except ImportError:  # pragma: no cover
+    client_session = None
+    server = None
+
+
+def setUpModule() -> None:
+    """Пропустить набор целиком, если SDK mcp не установлен.
+
+    Пропуск объявлен здесь, а не прямо на уровне модуля: ``python -m unittest``
+    не перехватывает ``SkipTest``, выброшенный во время импорта, и обрывает
+    весь прогон, а README документирует именно эту команду. ``setUpModule``
+    же корректно понимают оба раннера.
+    """
+    if server is None:  # pragma: no cover
+        raise unittest.SkipTest("SDK mcp не установлен; см. requirements-mcp.txt")
 
 
 class McpServerTestCase(unittest.IsolatedAsyncioTestCase):
