@@ -202,6 +202,21 @@ class MarkdownToWordTests(McpServerTestCase):
         self.assertEqual(len(warnings), 1)
         self.assertIn("fetch_remote_images", warnings[0])
 
+    async def test_fetch_remote_images_true_fetches(self) -> None:
+        (self.root / "doc.md").write_text(
+            "![diagram](https://example.invalid/x.png)", encoding="utf-8"
+        )
+
+        with patch("mdtoword.gfm_renderer.urlopen") as mock_urlopen:
+            mock_urlopen.return_value = _urlopen_response(_MINIMAL_PNG)
+            result = await self.call(
+                "markdown_to_word",
+                {"inputs": [str(self.root)], "fetch_remote_images": True},
+            )
+
+        mock_urlopen.assert_called_once()
+        self.assertEqual(result.structuredContent["converted"][0]["warnings"], [])
+
 
 class WordToMarkdownTests(McpServerTestCase):
     def write_docx(self, name: str) -> Path:

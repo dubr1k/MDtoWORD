@@ -99,6 +99,15 @@ class MarkdownToWordConverterTests(unittest.TestCase):
         with self.assertRaises(ConversionError):
             MarkdownToWordConverter().preview_file(self.root / "нет-такого.md")
 
+    def test_allow_remote_images_defaults_to_true(self) -> None:
+        # Guards the GUI-preservation guarantee: app.py builds this
+        # converter without passing allow_remote_images, so it must default
+        # to True (GfmDocxRenderer's own default) for the GUI to keep
+        # fetching remote images unchanged. The MCP server is the only
+        # caller that opts out, by passing allow_remote_images=False
+        # explicitly (see mcp_server.py).
+        self.assertIs(MarkdownToWordConverter().allow_remote_images, True)
+
 
 class WordToMarkdownConverterTests(unittest.TestCase):
     def setUp(self) -> None:
