@@ -1043,6 +1043,127 @@ class GfmDocxRendererTests(unittest.TestCase):
                 f"Heading {level} should take its font from the constructor",
             )
 
+    def test_absolute_target_outside_root_is_refused_without_probing_filesystem(self):
+        # The oracle-closing property: containment must be decided before
+        # is_file() is ever called on the candidate path, since the answer
+        # to "does this exist" is exactly what an agent could extract one
+        # bit at a time by naming arbitrary local files in the Markdown.
+        with tempfile.TemporaryDirectory() as root_dir, \
+                tempfile.TemporaryDirectory() as outside_dir:
+            root = Path(root_dir)
+            outside_target = str(Path(outside_dir) / "secret.png")
+            renderer = _renderer_ready_for_direct_image_append(
+                GfmDocxRenderer("Arial", Pt(12), image_roots=[root])
+            )
+
+            with patch.object(Path, "is_file", autospec=True) as mock_is_file:
+                renderer._append_image(_FakeImageToken(outside_target), None)
+
+        mock_is_file.assert_not_called()
+        self.assertEqual(
+            renderer.warnings,
+            [
+                f"Image outside the allowed root: {outside_target} "
+                "(pass image_root=... to widen it)"
+            ],
+        )
+        self.assertIn("[diagram]", renderer._paragraph.text)
+
+    def test_refusal_message_is_identical_whether_or_not_the_file_exists(self):
+        # Same target, checked both before and after the file is created --
+        # if the message depended on existence, this would catch it.
+        with tempfile.TemporaryDirectory() as root_dir, \
+                tempfile.TemporaryDirectory() as outside_dir:
+            root = Path(root_dir)
+            outside_target = str(Path(outside_dir) / "secret.png")
+            renderer = _renderer_ready_for_direct_image_append(
+                GfmDocxRenderer("Arial", Pt(12), image_roots=[root])
+            )
+
+            renderer._append_image(_FakeImageToken(outside_target), None)
+            missing_warning = renderer.warnings[-1]
+
+            Path(outside_target).write_bytes(_MINIMAL_PNG)
+            renderer.warnings = []
+            renderer._append_image(_FakeImageToken(outside_target), None)
+            existing_warning = renderer.warnings[-1]
+
+        self.assertEqual(missing_warning, existing_warning)
+        self.assertEqual(
+            missing_warning,
+            f"Image outside the allowed root: {outside_target} "
+            "(pass image_root=... to widen it)",
+        )
+
+    def test_relative_traversal_that_stays_inside_root_still_embeds(self):
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            (root / "images").mkdir()
+            (root / "images" / "logo.png").write_bytes(_MINIMAL_PNG)
+            (root / "guide").mkdir()
+            source_path = root / "guide" / "source.md"
+
+            renderer = _renderer_ready_for_direct_image_append(
+                GfmDocxRenderer("Arial", Pt(12), image_roots=[root])
+            )
+            renderer._append_image(_FakeImageToken("../images/logo.png"), source_path)
+
+        self.assertEqual(renderer.warnings, [])
+        self.assertEqual(len(renderer.document.inline_shapes), 1)
+
+    def test_traversal_that_escapes_root_is_refused(self):
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            (root / "guide").mkdir()
+            source_path = root / "guide" / "source.md"
+            target = "../../../etc/hosts"
+
+            renderer = _renderer_ready_for_direct_image_append(
+                GfmDocxRenderer("Arial", Pt(12), image_roots=[root])
+            )
+            renderer._append_image(_FakeImageToken(target), source_path)
+
+        self.assertEqual(
+            renderer.warnings,
+            [f"Image outside the allowed root: {target} (pass image_root=... to widen it)"],
+        )
+
+    def test_symlink_inside_root_pointing_outside_is_refused(self):
+        # A prefix check on the unresolved path would be fooled by this --
+        # the string "root/link.png" starts with "root", even though the
+        # symlink it names resolves somewhere else entirely.
+        with tempfile.TemporaryDirectory() as root_dir, \
+                tempfile.TemporaryDirectory() as outside_dir:
+            root = Path(root_dir)
+            outside_target = Path(outside_dir) / "secret.png"
+            outside_target.write_bytes(_MINIMAL_PNG)
+            link = root / "link.png"
+            link.symlink_to(outside_target)
+
+            renderer = _renderer_ready_for_direct_image_append(
+                GfmDocxRenderer("Arial", Pt(12), image_roots=[root])
+            )
+            renderer._append_image(_FakeImageToken("link.png"), root / "doc.md")
+
+        self.assertEqual(
+            renderer.warnings,
+            ["Image outside the allowed root: link.png (pass image_root=... to widen it)"],
+        )
+
+    def test_image_roots_none_is_unrestricted(self):
+        # Pins the GUI-preservation guarantee: app.py never passes
+        # image_roots, so the default must keep behaving exactly as it did
+        # before this restriction existed.
+        with tempfile.TemporaryDirectory() as directory:
+            image_path = Path(directory) / "diagram.png"
+            image_path.write_bytes(_MINIMAL_PNG)
+
+            renderer = _renderer_ready_for_direct_image_append(GfmDocxRenderer("Arial", Pt(12)))
+            renderer._append_image(_FakeImageToken(str(image_path)), None)
+
+        self.assertEqual(renderer.warnings, [])
+        self.assertEqual(len(renderer.document.inline_shapes), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

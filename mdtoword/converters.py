@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -34,11 +35,13 @@ class MarkdownToWordConverter:
         font_size: Pt = Pt(12),
         footnotes_heading: str = "Footnotes",
         allow_remote_images: bool = True,
+        image_roots: Sequence[Path] | None = None,
     ) -> None:
         self.default_font_name = font_name
         self.default_font_size = font_size
         self.footnotes_heading = footnotes_heading
         self.allow_remote_images = allow_remote_images
+        self.image_roots = image_roots
 
     def _render(self, content: str, source_path: Path | None) -> tuple[Any, list[str]]:
         """Отрендерить Markdown, переведя любой сбой рендеринга в ConversionError."""
@@ -48,6 +51,7 @@ class MarkdownToWordConverter:
                 self.default_font_size,
                 self.footnotes_heading,
                 self.allow_remote_images,
+                self.image_roots,
             ).render(content, source_path=source_path)
         except Exception as error:
             raise ConversionError(str(error)) from error

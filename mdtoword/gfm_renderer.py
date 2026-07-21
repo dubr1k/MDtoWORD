@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from io import BytesIO
 from pathlib import Path
 import re
@@ -140,11 +141,20 @@ class GfmDocxRenderer:
         font_size: Pt,
         footnotes_heading: str = "Footnotes",
         allow_remote_images: bool = True,
+        image_roots: Sequence[Path] | None = None,
     ):
         self.font_name = font_name
         self.font_size = font_size
         self.footnotes_heading = footnotes_heading
         self.allow_remote_images = allow_remote_images
+        self.image_roots = image_roots
+        # Resolved once here rather than per image: __init__ runs once per
+        # render, while _append_image runs once per image in the document.
+        # None means unrestricted (the GUI's default -- see app.py, which
+        # never passes image_roots).
+        self._resolved_image_roots: list[Path] | None = (
+            None if image_roots is None else [Path(root).resolve() for root in image_roots]
+        )
         self.document: DocumentType
         self.warnings: list[str]
         self._paragraph: Any
@@ -520,6 +530,22 @@ class GfmDocxRenderer:
             image_path = Path(target)
             if not image_path.is_absolute() and source_path is not None:
                 image_path = source_path.parent / image_path
+            if self._resolved_image_roots is not None:
+                # Containment is checked here, before is_file() below ever
+                # touches the filesystem for this path. Reversing the order
+                # would leak the same existence oracle a prefix check would:
+                # asking the filesystem about a path outside the sandbox is
+                # itself the leak, not just what it returns.
+                candidate = image_path.resolve()
+                if not any(
+                    candidate.is_relative_to(root) for root in self._resolved_image_roots
+                ):
+                    self._image_fallback(
+                        alt_text,
+                        f"Image outside the allowed root: {target} "
+                        "(pass image_root=... to widen it)",
+                    )
+                    return
             if not image_path.is_file():
                 raise FileNotFoundError(target)
             self._paragraph.add_run().add_picture(str(image_path))

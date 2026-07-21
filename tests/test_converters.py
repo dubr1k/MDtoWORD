@@ -108,6 +108,16 @@ class MarkdownToWordConverterTests(unittest.TestCase):
         # explicitly (see mcp_server.py).
         self.assertIs(MarkdownToWordConverter().allow_remote_images, True)
 
+    def test_image_roots_defaults_to_none(self) -> None:
+        # Guards the same GUI-preservation guarantee for the read-side
+        # sandbox: app.py builds this converter without passing
+        # image_roots, so it must default to None (GfmDocxRenderer's own
+        # "unrestricted" value) for the GUI to keep resolving local images
+        # from anywhere, exactly as before this restriction existed. The
+        # MCP server is the only caller that narrows it, by passing
+        # image_roots explicitly (see mcp_server.py).
+        self.assertIsNone(MarkdownToWordConverter().image_roots)
+
 
 class WordToMarkdownConverterTests(unittest.TestCase):
     def setUp(self) -> None:
