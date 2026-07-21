@@ -1,6 +1,7 @@
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import MagicMock, patch
 
 from docx import Document
 
@@ -9,10 +10,30 @@ from docx.oxml.ns import qn
 from docx.shared import Pt
 from docx.shared import RGBColor
 
-from mdtoword.gfm_renderer import GfmDocxRenderer
+from mdtoword.gfm_renderer import _MAX_REMOTE_IMAGE_BYTES, GfmDocxRenderer
 
 
 _MATH_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
+
+# The smallest well-formed PNG: an 8-byte signature, an IHDR chunk describing
+# a single transparent pixel, an (empty-payload) IDAT chunk, and IEND. Real
+# enough for python-docx's header parser to accept via ``add_picture``.
+_MINIMAL_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+    b"\x00\x00\x05\x00\x01\x05-\xb4\x00\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+def _urlopen_response(data: bytes) -> MagicMock:
+    """Mock of ``urlopen(...)``'s return value, usable as a context manager."""
+    response = MagicMock()
+    response.read.return_value = data
+    context = MagicMock()
+    context.__enter__.return_value = response
+    context.__exit__.return_value = False
+    return context
+
 
 # Every style GfmDocxRenderer applies to a paragraph somewhere in the
 # renderer: Normal for plain body paragraphs, Heading 1-9 for headings,
@@ -92,6 +113,66 @@ class GfmDocxRendererTests(unittest.TestCase):
         self.assertIn("MDtoWord", document.paragraphs[0].text)
         self.assertIn("[diagram]", document.paragraphs[0].text)
         self.assertEqual(warnings, ["Image not found: missing.png"])
+
+    def test_remote_image_not_fetched_when_disallowed(self):
+        renderer = GfmDocxRenderer("Arial", Pt(12), allow_remote_images=False)
+
+        with patch("mdtoword.gfm_renderer.urlopen") as mock_urlopen:
+            document, warnings = renderer.render(
+                "![diagram](https://example.invalid/x.png)"
+            )
+
+        mock_urlopen.assert_not_called()
+        self.assertEqual(
+            warnings,
+            [
+                "Remote image not fetched: https://example.invalid/x.png "
+                "(network access is disabled; pass fetch_remote_images=true to allow it)"
+            ],
+        )
+        self.assertIn("[diagram]", document.paragraphs[0].text)
+
+    def test_remote_image_fetched_by_default(self):
+        renderer = GfmDocxRenderer("Arial", Pt(12))
+
+        with patch("mdtoword.gfm_renderer.urlopen") as mock_urlopen:
+            mock_urlopen.return_value = _urlopen_response(_MINIMAL_PNG)
+            document, warnings = renderer.render(
+                "![diagram](https://example.invalid/x.png)"
+            )
+
+        mock_urlopen.assert_called_once()
+        self.assertEqual(warnings, [])
+
+    def test_local_image_is_unaffected_by_allow_remote_images_false(self):
+        renderer = GfmDocxRenderer("Arial", Pt(12), allow_remote_images=False)
+
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "diagram.png").write_bytes(_MINIMAL_PNG)
+            with patch("mdtoword.gfm_renderer.urlopen") as mock_urlopen:
+                document, warnings = renderer.render(
+                    "![diagram](diagram.png)",
+                    source_path=Path(directory) / "source.md",
+                )
+
+        mock_urlopen.assert_not_called()
+        self.assertEqual(warnings, [])
+
+    def test_remote_image_over_size_cap_falls_back_with_warning(self):
+        renderer = GfmDocxRenderer("Arial", Pt(12))
+        oversized = b"x" * (_MAX_REMOTE_IMAGE_BYTES + 1)
+
+        with patch("mdtoword.gfm_renderer.urlopen") as mock_urlopen:
+            mock_urlopen.return_value = _urlopen_response(oversized)
+            document, warnings = renderer.render(
+                "![diagram](https://example.invalid/x.png)"
+            )
+
+        mock_urlopen.assert_called_once()
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("too large", warnings[0])
+        self.assertIn(str(_MAX_REMOTE_IMAGE_BYTES), warnings[0])
+        self.assertIn("[diagram]", document.paragraphs[0].text)
 
     def test_renders_footnotes_as_a_final_section(self):
         document, warnings = self.renderer.render(

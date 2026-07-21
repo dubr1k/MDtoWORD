@@ -32,6 +32,11 @@ _TEXT_COMMAND = re.compile(
 )
 _BLACK = RGBColor(0, 0, 0)
 
+# Cap on how much of a remote image response we will read into memory. Applies
+# regardless of ``allow_remote_images`` -- a large or hostile URL should not be
+# able to exhaust memory just because fetching is permitted.
+_MAX_REMOTE_IMAGE_BYTES = 20 * 1024 * 1024
+
 # ``latex_omml`` parses these environments itself, so they are passed through
 # with their ``\begin``/``\end`` wrapper intact.
 _MATRIX_ENVIRONMENTS = frozenset(
@@ -116,10 +121,17 @@ def _set_style_font(style: ParagraphStyle, font_name: str) -> None:
 class GfmDocxRenderer:
     """Render a GFM token stream into a Word document."""
 
-    def __init__(self, font_name: str, font_size: Pt, footnotes_heading: str = "Footnotes"):
+    def __init__(
+        self,
+        font_name: str,
+        font_size: Pt,
+        footnotes_heading: str = "Footnotes",
+        allow_remote_images: bool = True,
+    ):
         self.font_name = font_name
         self.font_size = font_size
         self.footnotes_heading = footnotes_heading
+        self.allow_remote_images = allow_remote_images
         self.document: DocumentType
         self.warnings: list[str]
         self._paragraph: Any
@@ -468,9 +480,23 @@ class GfmDocxRenderer:
         alt_text = token.content or "image"
         try:
             if target.startswith(("http://", "https://")):
+                if not self.allow_remote_images:
+                    self.warnings.append(
+                        f"Remote image not fetched: {target} (network access is disabled; "
+                        "pass fetch_remote_images=true to allow it)"
+                    )
+                    self._append_text(f"[{alt_text}]", {"bold": False, "italic": False, "strike": False, "code": False}, None)
+                    return
                 with urlopen(target, timeout=10) as response:
-                    image_data = BytesIO(response.read())
-                self._paragraph.add_run().add_picture(image_data)
+                    image_bytes = response.read(_MAX_REMOTE_IMAGE_BYTES + 1)
+                if len(image_bytes) > _MAX_REMOTE_IMAGE_BYTES:
+                    self.warnings.append(
+                        f"Remote image too large: {target} (exceeds the "
+                        f"{_MAX_REMOTE_IMAGE_BYTES}-byte limit; not embedded)"
+                    )
+                    self._append_text(f"[{alt_text}]", {"bold": False, "italic": False, "strike": False, "code": False}, None)
+                    return
+                self._paragraph.add_run().add_picture(BytesIO(image_bytes))
                 return
 
             image_path = Path(target)

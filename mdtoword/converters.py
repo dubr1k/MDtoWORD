@@ -33,16 +33,21 @@ class MarkdownToWordConverter:
         font_name: str = "Times New Roman",
         font_size: Pt = Pt(12),
         footnotes_heading: str = "Footnotes",
+        allow_remote_images: bool = True,
     ) -> None:
         self.default_font_name = font_name
         self.default_font_size = font_size
         self.footnotes_heading = footnotes_heading
+        self.allow_remote_images = allow_remote_images
 
     def _render(self, content: str, source_path: Path | None) -> tuple[Any, list[str]]:
         """Отрендерить Markdown, переведя любой сбой рендеринга в ConversionError."""
         try:
             return GfmDocxRenderer(
-                self.default_font_name, self.default_font_size, self.footnotes_heading
+                self.default_font_name,
+                self.default_font_size,
+                self.footnotes_heading,
+                self.allow_remote_images,
             ).render(content, source_path=source_path)
         except Exception as error:
             raise ConversionError(str(error)) from error
