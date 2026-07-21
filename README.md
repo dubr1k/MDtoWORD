@@ -354,6 +354,15 @@ from a source you trust, since the server would otherwise reach out to
 whatever URL the Markdown names, using its own network access. The GUI is
 unaffected and keeps fetching remote images as before.
 
+`markdown_to_word` and `preview_markdown` also only read local-filesystem
+images from within the paths passed in `inputs`: a directory input allows
+images anywhere under it, a file input allows images only next to it, not in
+sibling directories. An image outside these roots becomes its alt text plus
+a warning, same as a missing file. Pass `image_root` to widen the allowed
+root when your images live elsewhere (e.g. a shared-assets layout rooted
+outside `inputs`). The GUI has no such restriction — a human already chose
+the file there.
+
 ---
 
 ## 🛠️ Development
@@ -774,6 +783,16 @@ Code запускает сервер в рабочей директории ва
 сервер обратится по любому адресу, указанному в документе, используя
 собственный сетевой доступ. На графический интерфейс это ограничение не
 распространяется — он, как и раньше, загружает удалённые изображения.
+
+`markdown_to_word` и `preview_markdown` также читают локальные изображения
+только из путей, переданных в `inputs`: если это папка — разрешено любое
+изображение внутри неё, если отдельный файл — только рядом с ним, в его
+собственной папке, но не в соседних. Изображение за пределами этой границы
+превращается в альтернативный текст с предупреждением — точно как
+отсутствующий файл. Если ваши изображения лежат вне `inputs` (например,
+общие ассеты в отдельной папке), передайте `image_root`, чтобы расширить
+разрешённый корень. На графический интерфейс это ограничение не
+распространяется — там файл уже выбрал человек.
 
 ---
 
