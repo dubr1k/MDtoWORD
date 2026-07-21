@@ -134,11 +134,12 @@ def markdown_to_word(
     (`$inline$`, `$$display$$`, and amsmath environments) becomes native Word
     OMML equations rather than an image or plain text.
 
-    Images referenced by an `http(s)` URL are not fetched by default; such an
-    image becomes its alt text plus a warning instead. Pass
-    `fetch_remote_images=true` to enable fetching — do this only for Markdown
-    from a source you trust, since the server fetches using its own network
-    access.
+    Images referenced by an `http(s)` URL are not fetched by default, and UNC
+    (`\\\\host\\share`) or protocol-relative (`//host/...`) paths are not
+    touched either; such an image becomes its alt text plus a warning
+    instead. Pass `fetch_remote_images=true` to enable HTTP(S) fetching — do
+    this only for Markdown from a source you trust, since the server fetches
+    using its own network access.
 
     Each output is written next to its source unless `output_dir` is given.
     Existing files at the target paths are overwritten without warning. A
@@ -202,11 +203,13 @@ def preview_markdown(
     math inside table cells. Use this before `markdown_to_word` when you want
     to fix the source first, or to inspect a document you must not overwrite.
 
-    Nothing is written to disk by this tool. Images referenced by an `http(s)`
-    URL are not fetched by default either, so the default call makes no
-    network requests at all. Pass `fetch_remote_images=true` to enable
-    fetching — do this only for Markdown from a source you trust, since the
-    server fetches using its own network access.
+    Nothing is written to disk by this tool. By default it does not fetch
+    images referenced by an `http(s)` URL, and does not touch UNC
+    (`\\\\host\\share`) or protocol-relative (`//host/...`) paths either --
+    such an image becomes its alt text plus a warning instead. Pass
+    `fetch_remote_images=true` to enable HTTP(S) fetching — do this only for
+    Markdown from a source you trust, since the server fetches using its own
+    network access.
     """
     sources = _resolve_inputs(inputs, "md_to_word")
     converter = MarkdownToWordConverter(
