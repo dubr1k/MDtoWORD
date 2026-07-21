@@ -104,6 +104,31 @@ def _resolve_inputs(inputs: list[str], mode: str) -> list[Path]:
     return discover_sources([Path(item).expanduser() for item in inputs], mode)
 
 
+def _resolve_image_roots(inputs: list[str]) -> list[Path]:
+    """Derive the local-image sandbox from *inputs*: one root per item.
+
+    A directory input allows filesystem images anywhere under it; a file
+    input allows them only next to it, in its parent directory -- naming
+    one file should not license wandering into sibling directories too.
+    An input that resolves to neither (a typo, a path that does not exist)
+    contributes no root, same as it contributes nothing to
+    ``discover_sources``.
+
+    Deliberately not a common ancestor of all inputs: with inputs drawn
+    from unrelated trees, the common ancestor can collapse to the
+    filesystem root, silently discarding the restriction this function
+    exists to build.
+    """
+    roots: list[Path] = []
+    for item in inputs:
+        candidate = Path(item).expanduser().resolve()
+        if candidate.is_dir():
+            roots.append(candidate)
+        elif candidate.is_file():
+            roots.append(candidate.parent)
+    return roots
+
+
 def _prepare_output_dir(output_dir: str | None) -> Path | None:
     """Подготовить каталог назначения; None означает «рядом с исходником»."""
     if output_dir is None:
@@ -123,6 +148,7 @@ def markdown_to_word(
     font_size: float = 12,
     footnotes_heading: str = "Footnotes",
     fetch_remote_images: bool = False,
+    image_root: str | None = None,
 ) -> ConversionReport:
     """Convert Markdown files to Word .docx documents.
 
@@ -141,6 +167,16 @@ def markdown_to_word(
     this only for Markdown from a source you trust, since the server fetches
     using its own network access.
 
+    Images referenced by a local filesystem path are only read from within
+    the paths passed in `inputs`: a directory input allows images anywhere
+    under it, a file input allows images only next to it (in its parent
+    directory), not in sibling directories — naming one file should not
+    license wandering elsewhere on disk. An image outside these roots
+    becomes its alt text plus a warning, same as a missing file. If your
+    images live outside `inputs` (e.g. a shared-assets layout rooted
+    elsewhere), pass `image_root` to widen the allowed root to that one
+    directory.
+
     Each output is written next to its source unless `output_dir` is given.
     Existing files at the target paths are overwritten without warning. A
     relative `output_dir` resolves against the server process's working
@@ -152,8 +188,17 @@ def markdown_to_word(
     sources = _resolve_inputs(inputs, "md_to_word")
     output_directory = _prepare_output_dir(output_dir) if sources else None
     outputs = resolve_output_paths(sources, output_directory, ".docx")
+    image_roots = (
+        [Path(image_root).expanduser().resolve()]
+        if image_root is not None
+        else _resolve_image_roots(inputs)
+    )
     converter = MarkdownToWordConverter(
-        font_name, Pt(font_size), footnotes_heading, allow_remote_images=fetch_remote_images
+        font_name,
+        Pt(font_size),
+        footnotes_heading,
+        allow_remote_images=fetch_remote_images,
+        image_roots=image_roots,
     )
     return _run_batch(sources, outputs, converter)
 
@@ -195,6 +240,7 @@ def preview_markdown(
     font_size: float = 12,
     footnotes_heading: str = "Footnotes",
     fetch_remote_images: bool = False,
+    image_root: str | None = None,
 ) -> PreviewReport:
     """Check what Markdown would lose in Word, without writing any file.
 
@@ -210,10 +256,25 @@ def preview_markdown(
     `fetch_remote_images=true` to enable HTTP(S) fetching — do this only for
     Markdown from a source you trust, since the server fetches using its own
     network access.
+
+    Images referenced by a local filesystem path are only read from within
+    the paths passed in `inputs`, with the same rule as `markdown_to_word`:
+    a directory input allows images anywhere under it, a file input allows
+    images only next to it, not in sibling directories. Pass `image_root`
+    to widen the allowed root when your images live elsewhere.
     """
     sources = _resolve_inputs(inputs, "md_to_word")
+    image_roots = (
+        [Path(image_root).expanduser().resolve()]
+        if image_root is not None
+        else _resolve_image_roots(inputs)
+    )
     converter = MarkdownToWordConverter(
-        font_name, Pt(font_size), footnotes_heading, allow_remote_images=fetch_remote_images
+        font_name,
+        Pt(font_size),
+        footnotes_heading,
+        allow_remote_images=fetch_remote_images,
+        image_roots=image_roots,
     )
     report = PreviewReport(sources_found=len(sources))
     for source in sources:

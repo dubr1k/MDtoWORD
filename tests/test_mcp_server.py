@@ -217,6 +217,74 @@ class MarkdownToWordTests(McpServerTestCase):
         mock_urlopen.assert_called_once()
         self.assertEqual(result.structuredContent["converted"][0]["warnings"], [])
 
+    async def test_image_outside_inputs_tree_is_refused_and_names_image_root(self) -> None:
+        with tempfile.TemporaryDirectory() as outside_dir:
+            outside_image = Path(outside_dir) / "secret.png"
+            outside_image.write_bytes(_MINIMAL_PNG)
+            (self.root / "doc.md").write_text(
+                f"![diagram]({outside_image})", encoding="utf-8"
+            )
+
+            result = await self.call("markdown_to_word", {"inputs": [str(self.root)]})
+
+        warnings = result.structuredContent["converted"][0]["warnings"]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("outside the allowed root", warnings[0])
+        self.assertIn("image_root", warnings[0])
+
+    async def test_shared_assets_layout_with_root_as_input_embeds(self) -> None:
+        # The common ../images/logo.png layout: the caller passed the
+        # containing folder, so a sibling directory one level up from the
+        # document is still inside the allowed root.
+        (self.root / "guide").mkdir()
+        (self.root / "images").mkdir()
+        (self.root / "images" / "logo.png").write_bytes(_MINIMAL_PNG)
+        (self.root / "guide" / "x.md").write_text(
+            "![logo](../images/logo.png)", encoding="utf-8"
+        )
+
+        result = await self.call("markdown_to_word", {"inputs": [str(self.root)]})
+
+        report = result.structuredContent
+        self.assertEqual(report["sources_found"], 1)
+        self.assertEqual(report["converted"][0]["warnings"], [])
+
+    async def test_image_under_second_of_multiple_inputs_is_allowed(self) -> None:
+        # Regression guard: roots must stay a list, one per input. Collapsing
+        # them into a single common ancestor (or keeping only the first) is
+        # the wrong "simplification" this test exists to catch.
+        with tempfile.TemporaryDirectory() as first_dir, \
+                tempfile.TemporaryDirectory() as second_dir:
+            first = Path(first_dir)
+            second = Path(second_dir)
+            (second / "diagram.png").write_bytes(_MINIMAL_PNG)
+            (first / "doc.md").write_text(
+                f"![diagram]({second / 'diagram.png'})", encoding="utf-8"
+            )
+
+            result = await self.call(
+                "markdown_to_word", {"inputs": [str(first), str(second)]}
+            )
+
+        report = result.structuredContent
+        self.assertEqual(report["converted"][0]["warnings"], [])
+
+    async def test_image_root_override_widens_access_to_a_refused_path(self) -> None:
+        with tempfile.TemporaryDirectory() as outside_dir:
+            outside_image = Path(outside_dir) / "secret.png"
+            outside_image.write_bytes(_MINIMAL_PNG)
+            (self.root / "doc.md").write_text(
+                f"![diagram]({outside_image})", encoding="utf-8"
+            )
+
+            result = await self.call(
+                "markdown_to_word",
+                {"inputs": [str(self.root)], "image_root": str(outside_dir)},
+            )
+
+        report = result.structuredContent
+        self.assertEqual(report["converted"][0]["warnings"], [])
+
 
 class WordToMarkdownTests(McpServerTestCase):
     def write_docx(self, name: str) -> Path:
@@ -331,6 +399,20 @@ class PreviewTests(McpServerTestCase):
 
         mock_urlopen.assert_called_once()
         self.assertEqual(result.structuredContent["previews"][0]["warnings"], [])
+
+    async def test_image_outside_inputs_tree_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as outside_dir:
+            outside_image = Path(outside_dir) / "secret.png"
+            outside_image.write_bytes(_MINIMAL_PNG)
+            (self.root / "doc.md").write_text(
+                f"![diagram]({outside_image})", encoding="utf-8"
+            )
+
+            result = await self.call("preview_markdown", {"inputs": [str(self.root)]})
+
+        warnings = result.structuredContent["previews"][0]["warnings"]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("outside the allowed root", warnings[0])
 
 
 class StdioProtocolTests(unittest.TestCase):
