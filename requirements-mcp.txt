@@ -1,0 +1,6 @@
+# Зависимости MCP-сервера (mdtoword/mcp_server.py).
+# Намеренно отдельно от requirements.txt: тот описывает GUI-приложение,
+# сверяется с environment.yml тестом tests/test_packaging.py и попадает
+# в сборку PyInstaller, которой серверный SDK не нужен.
+-r requirements.txt
+mcp==1.28.1

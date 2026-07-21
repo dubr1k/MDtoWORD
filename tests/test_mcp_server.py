@@ -1,0 +1,158 @@
+"""Тесты MCP-сервера через in-memory клиент из SDK.
+
+Клиент и сервер соединяются напрямую в одном процессе, без подпроцесса
+и без stdio, — проверяется реальный путь вызова инструмента вместе со
+схемами и валидацией аргументов.
+"""
+
+from pathlib import Path
+import tempfile
+import unittest
+
+from docx import Document
+
+try:
+    from mcp.shared.memory import (
+        create_connected_server_and_client_session as client_session,
+    )
+except ImportError:  # pragma: no cover
+    raise unittest.SkipTest("SDK mcp не установлен; см. requirements-mcp.txt")
+
+from mdtoword.mcp_server import mcp as server
+
+
+class McpServerTestCase(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+        self.root = Path(self._tmpdir.name)
+
+    async def call(self, tool: str, arguments: dict):
+        async with client_session(server._mcp_server) as client:
+            return await client.call_tool(tool, arguments)
+
+
+class ToolRegistrationTests(McpServerTestCase):
+    async def test_both_conversion_tools_are_advertised_with_descriptions(self) -> None:
+        async with client_session(server._mcp_server) as client:
+            listed = await client.list_tools()
+
+        tools = {tool.name: tool for tool in listed.tools}
+        self.assertIn("markdown_to_word", tools)
+        self.assertIn("word_to_markdown", tools)
+        for tool in tools.values():
+            self.assertTrue(tool.description)
+
+    async def test_the_lossy_direction_says_so_in_its_description(self) -> None:
+        async with client_session(server._mcp_server) as client:
+            listed = await client.list_tools()
+
+        description = next(t.description for t in listed.tools if t.name == "word_to_markdown")
+        self.assertIn("lossy", description.lower())
+
+
+class MarkdownToWordTests(McpServerTestCase):
+    async def test_a_directory_is_converted_recursively_with_one_output_each(self) -> None:
+        nested = self.root / "nested"
+        nested.mkdir()
+        (self.root / "first.md").write_text("# Первый", encoding="utf-8")
+        (nested / "second.markdown").write_text("# Второй", encoding="utf-8")
+        (self.root / "ignored.txt").write_text("не markdown", encoding="utf-8")
+
+        result = await self.call("markdown_to_word", {"inputs": [str(self.root)]})
+
+        self.assertFalse(result.isError)
+        report = result.structuredContent
+        self.assertEqual(report["sources_found"], 2)
+        self.assertEqual(len(report["converted"]), 2)
+        self.assertEqual(report["failed"], [])
+        for entry in report["converted"]:
+            self.assertTrue(Path(entry["output"]).is_file())
+
+    async def test_output_dir_is_created_and_used(self) -> None:
+        (self.root / "doc.md").write_text("# Заголовок", encoding="utf-8")
+        destination = self.root / "out" / "deep"
+
+        result = await self.call(
+            "markdown_to_word",
+            {"inputs": [str(self.root / "doc.md")], "output_dir": str(destination)},
+        )
+
+        report = result.structuredContent
+        self.assertEqual(Path(report["converted"][0]["output"]).parent, destination)
+        self.assertTrue((destination / "doc.docx").is_file())
+
+    async def test_nonfatal_warnings_are_reported_per_file(self) -> None:
+        (self.root / "doc.md").write_text("![diagram](missing.png)", encoding="utf-8")
+
+        result = await self.call("markdown_to_word", {"inputs": [str(self.root)]})
+
+        report = result.structuredContent
+        self.assertEqual(
+            report["converted"][0]["warnings"], ["Image not found: missing.png"]
+        )
+
+    async def test_font_arguments_reach_the_document(self) -> None:
+        (self.root / "doc.md").write_text("Текст", encoding="utf-8")
+
+        result = await self.call(
+            "markdown_to_word",
+            {"inputs": [str(self.root)], "font_name": "Georgia", "font_size": 14},
+        )
+
+        output = Path(result.structuredContent["converted"][0]["output"])
+        document = Document(str(output))
+        self.assertEqual(document.styles["Normal"].font.name, "Georgia")
+
+    async def test_paths_matching_nothing_report_zero_sources_found(self) -> None:
+        result = await self.call(
+            "markdown_to_word", {"inputs": [str(self.root / "нет-такой-папки")]}
+        )
+
+        report = result.structuredContent
+        self.assertEqual(report["sources_found"], 0)
+        self.assertEqual(report["converted"], [])
+        self.assertEqual(report["failed"], [])
+
+    async def test_empty_inputs_is_an_error_not_an_empty_success(self) -> None:
+        result = await self.call("markdown_to_word", {"inputs": []})
+
+        self.assertTrue(result.isError)
+
+
+class WordToMarkdownTests(McpServerTestCase):
+    def write_docx(self, name: str) -> Path:
+        path = self.root / name
+        document = Document()
+        document.add_heading("Раздел", level=1)
+        document.save(str(path))
+        return path
+
+    async def test_documents_are_converted_to_markdown_files(self) -> None:
+        self.write_docx("report.docx")
+
+        result = await self.call("word_to_markdown", {"inputs": [str(self.root)]})
+
+        report = result.structuredContent
+        self.assertEqual(report["sources_found"], 1)
+        output = Path(report["converted"][0]["output"])
+        self.assertEqual(output.suffix, ".md")
+        self.assertIn("# Раздел", output.read_text(encoding="utf-8"))
+
+    async def test_a_broken_file_fails_alone_without_stopping_the_batch(self) -> None:
+        self.write_docx("good.docx")
+        (self.root / "broken.docx").write_text("это не zip-контейнер", encoding="utf-8")
+
+        result = await self.call("word_to_markdown", {"inputs": [str(self.root)]})
+
+        report = result.structuredContent
+        self.assertFalse(result.isError)
+        self.assertEqual(report["sources_found"], 2)
+        self.assertEqual(len(report["converted"]), 1)
+        self.assertEqual(len(report["failed"]), 1)
+        self.assertTrue(report["failed"][0]["source"].endswith("broken.docx"))
+        self.assertTrue(report["failed"][0]["error"])
+
+
+if __name__ == "__main__":
+    unittest.main()
