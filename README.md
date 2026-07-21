@@ -240,9 +240,11 @@ MDtoWORD/
 ├── 📦 mdtoword/                  # Application package (run: python -m mdtoword)
 │   ├── __init__.py
 │   ├── __main__.py               # Entry point
-│   ├── app.py                    # PyQt6 GUI and both converters
+│   ├── app.py                    # PyQt6 GUI
+│   ├── converters.py             # Qt-free conversion core, used by the GUI and the MCP server
 │   ├── gfm_renderer.py           # Renders GFM markup into a Word document
 │   ├── latex_omml.py             # Parses LaTeX and builds OMML equations
+│   ├── mcp_server.py             # MCP server: three conversion tools over stdio
 │   ├── workflow.py               # Source discovery and output path allocation
 │   └── theme.py                  # Dark and light themes, persisted choice
 ├── 📁 tests/                     # Test suite (unittest)
@@ -250,8 +252,9 @@ MDtoWORD/
 │   ├── test_gui_theme.py
 │   ├── test_conversion_workflow.py
 │   ├── test_gfm_docx_renderer.py
-│   ├── test_markdown_converter.py
+│   ├── test_converters.py
 │   ├── test_latex_omml.py
+│   ├── test_mcp_server.py
 │   └── test_packaging.py
 ├── 📁 scripts/
 │   ├── build_macos.sh            # Builds MDtoWORD.app (Apple Silicon)
@@ -270,6 +273,7 @@ MDtoWORD/
 ├── 📄 MDtoWORD.spec              # PyInstaller configuration (macOS)
 ├── 📋 requirements.txt           # Application dependencies
 ├── 📋 requirements-build.txt     # Build dependencies (PyInstaller)
+├── 📋 requirements-mcp.txt       # MCP server dependencies
 ├── 📋 environment.yml            # Conda environment (Python 3.11)
 └── 📖 README.md                  # Documentation (this file)
 ```
@@ -290,6 +294,51 @@ MDtoWORD/
 
 ---
 
+## 🤖 MCP server
+
+MDtoWORD ships an MCP server so agents can run the same conversions the GUI does.
+
+Install the server dependencies:
+
+```bash
+python -m pip install -r requirements-mcp.txt
+```
+
+Register it with any MCP client (paths must be absolute):
+
+```json
+{
+  "mcpServers": {
+    "mdtoword": {
+      "command": "/path/to/MDtoWord/.venv/bin/python",
+      "args": ["-m", "mdtoword.mcp_server"],
+      "cwd": "/path/to/MDtoWord"
+    }
+  }
+}
+```
+
+For Claude Code:
+
+```bash
+claude mcp add mdtoword --scope user \
+  -- /path/to/MDtoWord/.venv/bin/python -m mdtoword.mcp_server
+```
+
+### Tools
+
+| Tool | What it does |
+| --- | --- |
+| `markdown_to_word` | Converts `.md` / `.markdown` files and directories to `.docx`, with GFM, footnotes, images and LaTeX → OMML equations. |
+| `word_to_markdown` | Converts `.docx` files and directories to Markdown. Lossy: keeps headings, bold, italic and tables; flattens everything else. |
+| `preview_markdown` | Renders Markdown in memory and reports only what would not survive the conversion. Writes nothing. |
+
+All three take paths, never file contents, and accept files and directories
+mixed together; directories are scanned recursively. Existing output files are
+overwritten without warning.
+
+---
+
 ## 🛠️ Development
 
 Run the tests from the project root:
@@ -297,11 +346,11 @@ Run the tests from the project root:
 ```bash
 QT_QPA_PLATFORM=offscreen python -m unittest \
     tests.test_drop_queue tests.test_gui_theme tests.test_conversion_workflow \
-    tests.test_gfm_docx_renderer tests.test_markdown_converter tests.test_latex_omml \
-    tests.test_packaging
+    tests.test_gfm_docx_renderer tests.test_converters tests.test_latex_omml \
+    tests.test_mcp_server tests.test_packaging
 ```
 
-The suite currently holds **116 tests**. `QT_QPA_PLATFORM=offscreen` lets the interface tests run without a display.
+The suite currently holds **195 tests**. `QT_QPA_PLATFORM=offscreen` lets the interface tests run without a display.
 
 Standalone bundles:
 
@@ -589,9 +638,11 @@ MDtoWORD/
 ├── 📦 mdtoword/                  # Пакет приложения (запуск: python -m mdtoword)
 │   ├── __init__.py
 │   ├── __main__.py               # Точка входа
-│   ├── app.py                    # GUI на PyQt6 и оба конвертера
+│   ├── app.py                    # GUI на PyQt6
+│   ├── converters.py             # Ядро конвертации без Qt, общее для GUI и MCP-сервера
 │   ├── gfm_renderer.py           # Рендер GFM-разметки в документ Word
 │   ├── latex_omml.py             # Разбор LaTeX и сборка уравнений OMML
+│   ├── mcp_server.py             # MCP-сервер: три инструмента конвертации по stdio
 │   ├── workflow.py               # Поиск исходников и раскладка результатов
 │   └── theme.py                  # Тёмная и светлая темы, сохранение выбора
 ├── 📁 tests/                     # Тесты (unittest)
@@ -599,8 +650,9 @@ MDtoWORD/
 │   ├── test_gui_theme.py
 │   ├── test_conversion_workflow.py
 │   ├── test_gfm_docx_renderer.py
-│   ├── test_markdown_converter.py
+│   ├── test_converters.py
 │   ├── test_latex_omml.py
+│   ├── test_mcp_server.py
 │   └── test_packaging.py
 ├── 📁 scripts/
 │   ├── build_macos.sh            # Сборка MDtoWORD.app (Apple Silicon)
@@ -619,6 +671,7 @@ MDtoWORD/
 ├── 📄 MDtoWORD.spec              # Конфигурация PyInstaller (macOS)
 ├── 📋 requirements.txt           # Зависимости приложения
 ├── 📋 requirements-build.txt     # Зависимости сборки (PyInstaller)
+├── 📋 requirements-mcp.txt       # Зависимости MCP-сервера
 ├── 📋 environment.yml            # Conda-окружение (Python 3.11)
 └── 📖 README.md                  # Документация (этот файл)
 ```
@@ -639,6 +692,51 @@ MDtoWORD/
 
 ---
 
+## 🤖 MCP-сервер
+
+MDtoWORD включает MCP-сервер, чтобы агенты могли выполнять те же конвертации, что и графический интерфейс.
+
+Установите зависимости сервера:
+
+```bash
+python -m pip install -r requirements-mcp.txt
+```
+
+Подключите его в любом MCP-клиенте (пути должны быть абсолютными):
+
+```json
+{
+  "mcpServers": {
+    "mdtoword": {
+      "command": "/path/to/MDtoWord/.venv/bin/python",
+      "args": ["-m", "mdtoword.mcp_server"],
+      "cwd": "/path/to/MDtoWord"
+    }
+  }
+}
+```
+
+Для Claude Code:
+
+```bash
+claude mcp add mdtoword --scope user \
+  -- /path/to/MDtoWord/.venv/bin/python -m mdtoword.mcp_server
+```
+
+### Инструменты
+
+| Инструмент | Что делает |
+| --- | --- |
+| `markdown_to_word` | Конвертирует файлы и папки `.md` / `.markdown` в `.docx`: GFM, сноски, изображения и формулы LaTeX → уравнения OMML. |
+| `word_to_markdown` | Конвертирует файлы и папки `.docx` в Markdown. С потерями: сохраняются заголовки, жирный, курсив и таблицы; всё остальное упрощается. |
+| `preview_markdown` | Рендерит Markdown в памяти и сообщает только о том, что не переживёт конвертацию. Ничего не записывает на диск. |
+
+Все три инструмента принимают пути, а не содержимое файлов, и работают с файлами
+и папками вперемешку; папки просматриваются рекурсивно. Существующие выходные
+файлы перезаписываются без предупреждения.
+
+---
+
 ## 🛠️ Разработка
 
 Тесты запускаются из корня проекта:
@@ -646,11 +744,11 @@ MDtoWORD/
 ```bash
 QT_QPA_PLATFORM=offscreen python -m unittest \
     tests.test_drop_queue tests.test_gui_theme tests.test_conversion_workflow \
-    tests.test_gfm_docx_renderer tests.test_markdown_converter tests.test_latex_omml \
-    tests.test_packaging
+    tests.test_gfm_docx_renderer tests.test_converters tests.test_latex_omml \
+    tests.test_mcp_server tests.test_packaging
 ```
 
-Сейчас в наборе **116 тестов**. Переменная `QT_QPA_PLATFORM=offscreen` нужна, чтобы тесты интерфейса работали без экрана.
+Сейчас в наборе **195 тестов**. Переменная `QT_QPA_PLATFORM=offscreen` нужна, чтобы тесты интерфейса работали без экрана.
 
 Автономные сборки:
 
