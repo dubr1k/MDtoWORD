@@ -58,7 +58,10 @@ class MarkdownToWordConverter:
         source_path = Path(input_path)
         try:
             content = source_path.read_text(encoding="utf-8")
-        except OSError as error:
+        except (OSError, UnicodeDecodeError) as error:
+            # UnicodeDecodeError — подкласс ValueError, а не OSError: файл с
+            # не-UTF-8 содержимым (например, в CP1251) иначе прорвался бы
+            # мимо контракта необработанным исключением.
             raise ConversionError(str(error)) from error
         return self.convert_content(content, output_path, source_path)
 
@@ -90,25 +93,28 @@ class WordToMarkdownConverter:
             if not paragraph.text.strip():
                 lines.append("")
                 continue
-            heading_level = self._heading_level(paragraph)
-            if heading_level:
-                lines.append("#" * heading_level + " " + paragraph.text)
+            level = self._heading_level(paragraph)
+            if 1 <= level <= 6:
+                lines.append("#" * level + " " + paragraph.text)
+            elif level:
+                # Word допускает Heading 7-9; в Markdown такого уровня нет,
+                # поэтому текст идёт как есть, без inline-разметки — как в оригинале.
+                lines.append(paragraph.text)
             else:
                 lines.append(self._inline_markup(paragraph))
         return lines
 
     @staticmethod
     def _heading_level(paragraph: Any) -> int:
-        """Вернуть уровень заголовка 1..6 или 0, если это не заголовок."""
+        """Вернуть распознанный уровень заголовка (Word допускает Heading 7-9) или 0."""
         style = paragraph.style
         style_name = (style.name or "") if style is not None else ""
         if not style_name.startswith("Heading "):
             return 0
         try:
-            level = int(style_name.split()[-1])
+            return int(style_name.split()[-1])
         except ValueError:
             return 0
-        return level if 1 <= level <= 6 else 0
 
     @staticmethod
     def _inline_markup(paragraph: Any) -> str:
@@ -121,6 +127,8 @@ class WordToMarkdownConverter:
                 parts.append(f"**{text}**")
             elif run.italic:
                 parts.append(f"*{text}*")
+            elif text.strip().startswith("`") and text.strip().endswith("`"):
+                parts.append(f"`{text}`")
             else:
                 parts.append(text)
         return "".join(parts)
