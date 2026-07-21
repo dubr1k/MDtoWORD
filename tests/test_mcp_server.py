@@ -175,5 +175,52 @@ class WordToMarkdownTests(McpServerTestCase):
         self.assertTrue(report["failed"][0]["error"])
 
 
+class PreviewTests(McpServerTestCase):
+    async def test_preview_reports_warnings_and_writes_no_files(self) -> None:
+        (self.root / "doc.md").write_text("![diagram](missing.png)", encoding="utf-8")
+        before = sorted(path.name for path in self.root.iterdir())
+
+        result = await self.call("preview_markdown", {"inputs": [str(self.root)]})
+
+        report = result.structuredContent
+        self.assertEqual(report["sources_found"], 1)
+        self.assertEqual(
+            report["previews"][0]["warnings"], ["Image not found: missing.png"]
+        )
+        self.assertEqual(sorted(path.name for path in self.root.iterdir()), before)
+
+    async def test_preview_reports_unreadable_files_in_failed(self) -> None:
+        (self.root / "good.md").write_text("# Заголовок", encoding="utf-8")
+        broken = self.root / "broken.md"
+        broken.write_bytes(b"\xff\xfe\x00 invalid utf-8")
+
+        result = await self.call("preview_markdown", {"inputs": [str(self.root)]})
+
+        report = result.structuredContent
+        self.assertEqual(report["sources_found"], 2)
+        self.assertEqual(len(report["previews"]), 1)
+        self.assertEqual(len(report["failed"]), 1)
+        self.assertTrue(report["failed"][0]["source"].endswith("broken.md"))
+
+
+class StdioProtocolTests(unittest.TestCase):
+    def test_importing_the_server_writes_nothing_to_stdout(self) -> None:
+        # stdout — это канал stdio-протокола: одна лишняя строка при импорте
+        # рвёт JSON-RPC сессию, и клиент видит нечитаемую ошибку парсинга.
+        import subprocess
+        import sys
+
+        repo_root = Path(__file__).resolve().parent.parent
+        result = subprocess.run(
+            [sys.executable, "-c", "import mdtoword.mcp_server"],
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -80,6 +80,25 @@ class MarkdownToWordConverterTests(unittest.TestCase):
         document = Document(str(output))
         self.assertEqual(document.styles["Normal"].font.name, "Georgia")
 
+    def test_preview_reports_warnings_without_writing_anything(self) -> None:
+        source = self.root / "source.md"
+        source.write_text("![diagram](missing.png)", encoding="utf-8")
+        before = sorted(path.name for path in self.root.iterdir())
+
+        warnings = MarkdownToWordConverter().preview_file(source)
+
+        self.assertEqual(warnings, ["Image not found: missing.png"])
+        self.assertEqual(sorted(path.name for path in self.root.iterdir()), before)
+
+    def test_preview_of_clean_markdown_returns_no_warnings(self) -> None:
+        warnings = MarkdownToWordConverter().preview_content("# Заголовок\n\nТекст.")
+
+        self.assertEqual(warnings, [])
+
+    def test_preview_of_a_missing_file_raises_conversion_error(self) -> None:
+        with self.assertRaises(ConversionError):
+            MarkdownToWordConverter().preview_file(self.root / "нет-такого.md")
+
 
 class WordToMarkdownConverterTests(unittest.TestCase):
     def setUp(self) -> None:

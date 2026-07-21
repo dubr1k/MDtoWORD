@@ -65,6 +65,29 @@ class MarkdownToWordConverter:
             raise ConversionError(str(error)) from error
         return self.convert_content(content, output_path, source_path)
 
+    def preview_content(
+        self, content: str, source_path: Path | None = None
+    ) -> list[str]:
+        """Отрендерить Markdown в память и вернуть варнинги, ничего не сохраняя."""
+        try:
+            _, warnings = GfmDocxRenderer(
+                self.default_font_name, self.default_font_size, self.footnotes_heading
+            ).render(content, source_path=source_path)
+        except Exception as error:
+            raise ConversionError(str(error)) from error
+        return warnings
+
+    def preview_file(self, input_path: str | Path) -> list[str]:
+        """Прочитать Markdown-файл и отрендерить его вхолостую."""
+        source_path = Path(input_path)
+        try:
+            content = source_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as error:
+            # UnicodeDecodeError — подкласс ValueError, а не OSError:
+            # файл в CP1251 иначе улетел бы мимо контракта ConversionError.
+            raise ConversionError(str(error)) from error
+        return self.preview_content(content, source_path)
+
 
 class WordToMarkdownConverter:
     """Извлекает Markdown из документа Word.

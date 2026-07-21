@@ -59,6 +59,29 @@ class ConversionReport(BaseModel):
     failed: list[FailedFile] = Field(default_factory=list)
 
 
+class PreviewedFile(BaseModel):
+    """One Markdown file rendered without writing anything."""
+
+    source: str = Field(description="Absolute path of the input file")
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="What would not survive the conversion to Word",
+    )
+
+
+class PreviewReport(BaseModel):
+    """Result of previewing a batch of Markdown files."""
+
+    sources_found: int = Field(
+        description=(
+            "How many Markdown files the inputs resolved to. "
+            "0 means the paths matched nothing."
+        )
+    )
+    previews: list[PreviewedFile] = Field(default_factory=list)
+    failed: list[FailedFile] = Field(default_factory=list)
+
+
 def _resolve_inputs(inputs: list[str], mode: str) -> list[Path]:
     """Развернуть переданные пути в отсортированный список исходных файлов."""
     if not inputs:
@@ -134,6 +157,37 @@ def word_to_markdown(
     sources = _resolve_inputs(inputs, "word_to_md")
     outputs = resolve_output_paths(sources, _prepare_output_dir(output_dir), ".md")
     return _run_batch(sources, outputs, WordToMarkdownConverter())
+
+
+@mcp.tool()
+def preview_markdown(
+    inputs: list[str],
+    font_name: str = "Times New Roman",
+    font_size: float = 12,
+    footnotes_heading: str = "Footnotes",
+) -> PreviewReport:
+    """Check what Markdown would lose in Word, without writing any file.
+
+    Runs the full conversion in memory and discards the result, reporting only
+    the warnings: missing images, LaTeX that cannot become an OMML equation,
+    math inside table cells. Use this before `markdown_to_word` when you want
+    to fix the source first, or to inspect a document you must not overwrite.
+
+    Nothing is written to disk by this tool.
+    """
+    sources = _resolve_inputs(inputs, "md_to_word")
+    converter = MarkdownToWordConverter(font_name, Pt(font_size), footnotes_heading)
+    report = PreviewReport(sources_found=len(sources))
+    for source in sources:
+        try:
+            warnings = converter.preview_file(source)
+        except ConversionError as error:
+            report.failed.append(FailedFile(source=str(source), error=str(error)))
+        else:
+            report.previews.append(
+                PreviewedFile(source=str(source), warnings=warnings)
+            )
+    return report
 
 
 def _run_batch(
