@@ -112,7 +112,7 @@ The markup goes through a GitHub Flavored Markdown parser, so support goes well 
 | **Strikethrough** | `~~text~~` | Strikethrough |
 | **Inline code** | `` `code` `` | Courier New, 10 pt |
 | **Links** | `[text](url)` | A real hyperlink, black and underlined |
-| **Images** | `![alt](path)` | Embedded picture; local paths resolve against the source file, `http(s)` URLs are downloaded |
+| **Images** | `![alt](path)` | Embedded picture; local paths resolve against the source file, `http(s)` URLs are downloaded (GUI behaviour — the [MCP server](#-mcp-server) does not fetch them by default) |
 | **Blockquotes** | `> text` | Quote style, justified |
 | **Thematic breaks** | `---` | Horizontal rule |
 | **Code blocks** | ````` ```python ````` | Courier New 10 pt, language as an italic caption above |
@@ -531,7 +531,7 @@ python -m mdtoword
 | **Зачёркнутый** | `~~текст~~` | Strikethrough |
 | **Код в строке** | `` `код` `` | Courier New, 10 pt |
 | **Ссылки** | `[текст](url)` | Настоящая гиперссылка, чёрная с подчёркиванием |
-| **Изображения** | `![alt](путь)` | Картинка в документе; локальные пути считаются от файла-исходника, ссылки `http(s)` скачиваются |
+| **Изображения** | `![alt](путь)` | Картинка в документе; локальные пути считаются от файла-исходника, ссылки `http(s)` скачиваются (поведение GUI — [MCP-сервер](#-mcp-сервер) по умолчанию их не загружает) |
 | **Цитаты** | `> текст` | Стиль Quote, по ширине |
 | **Разделители** | `---` | Горизонтальная линия |
 | **Блоки кода** | ````` ```python ````` | Courier New 10 pt, язык — курсивной подписью сверху |
