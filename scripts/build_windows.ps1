@@ -41,7 +41,9 @@ if (-not (Test-Path $ArchivedExecutable)) {
 }
 
 $Hash = (Get-FileHash -Path $Archive -Algorithm SHA256).Hash.ToLowerInvariant()
-Set-Content -Path $Checksum -Encoding ascii -Value "$Hash  MDtoWORD-Windows-x64.zip"
+# LF, not the CRLF that Set-Content writes: `shasum -c` on macOS and Linux
+# reads the carriage return as part of the file name and fails the check.
+[System.IO.File]::WriteAllText($Checksum, "$Hash  MDtoWORD-Windows-x64.zip`n", [System.Text.Encoding]::ASCII)
 
 Write-Host "Windows bundle: $Archive"
 Write-Host "SHA-256: $Hash"
