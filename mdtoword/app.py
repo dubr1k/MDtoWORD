@@ -3,11 +3,11 @@ from typing import Any, cast
 from pathlib import Path
 
 from docx.shared import Pt
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent, QIcon, QMouseEvent
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent, QIcon
 from PyQt6.QtWidgets import (
-    QApplication, QAbstractItemView, QComboBox, QFileDialog, QGroupBox,
-    QHBoxLayout, QLabel, QListWidget, QMainWindow, QMessageBox,
+    QApplication, QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QGroupBox,
+    QHBoxLayout, QLabel, QMainWindow, QMessageBox,
     QPlainTextEdit, QProgressBar, QPushButton, QSpinBox, QTabWidget,
     QVBoxLayout, QWidget,
 )
@@ -17,77 +17,18 @@ from .converters import (
     MarkdownToWordConverter,
     WordToMarkdownConverter,
 )
+from .gui.texts import TRANSLATIONS, describe_warning as _describe_warning
+from .gui.widgets import (
+    DropFileList,
+    DropZoneLabel,
+    accept_local_paths_event as _accept_local_paths_event,
+    dropped_local_paths as _dropped_local_paths,
+)
+from .options import PRESET_FONT_SIZE, DocumentOptions
 from .workflow import discover_sources, resolve_output_paths
 from .theme import ThemeManager
 
-
-def _dropped_local_paths(event: Any | None) -> list[str]:
-    """Local filesystem paths carried by a drop event, if any."""
-    if event is None:
-        return []
-    mime_data = event.mimeData()
-    if mime_data is None:
-        return []
-    return [url.toLocalFile() for url in mime_data.urls() if url.isLocalFile()]
-
-
-def _accept_local_paths_event(event: Any | None) -> None:
-    """Accept a drag event that carries at least one local filesystem path."""
-    if event is None:
-        return
-    if _dropped_local_paths(event):
-        event.acceptProposedAction()
-    else:
-        event.ignore()
-
-
-class DropFileList(QListWidget):
-    """A queue widget that accepts files and directories from the desktop."""
-
-    paths_dropped = pyqtSignal(list)
-
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self.setAcceptDrops(True)
-
-    def dragEnterEvent(self, e: QDragEnterEvent | None) -> None:
-        _accept_local_paths_event(e)
-
-    def dragMoveEvent(self, e: QDragMoveEvent | None) -> None:
-        _accept_local_paths_event(e)
-
-    def dropEvent(self, event: QDropEvent | None) -> None:
-        if event is None:
-            return
-        paths = _dropped_local_paths(event)
-        if paths:
-            self.paths_dropped.emit(paths)
-            event.acceptProposedAction()
-        else:
-            event.ignore()
-
-
-class DropZoneLabel(QLabel):
-    """Clickable drop hint that doubles as a file-picker button."""
-
-    clicked = pyqtSignal()
-
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self.setObjectName("drop-zone")
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setWordWrap(True)
-        self.setMinimumHeight(80)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-
-    def mouseReleaseEvent(self, event: QMouseEvent | None) -> None:
-        if (
-            event is not None
-            and event.button() == Qt.MouseButton.LeftButton
-            and self.rect().contains(event.position().toPoint())
-        ):
-            self.clicked.emit()
-        super().mouseReleaseEvent(event)
+__all__ = ["ConverterGUI", "DropFileList", "DropZoneLabel", "main"]
 
 
 class ConverterGUI(QMainWindow):
@@ -107,54 +48,7 @@ class ConverterGUI(QMainWindow):
         self.converter: MarkdownToWordConverter | WordToMarkdownConverter = MarkdownToWordConverter()
         self.current_language = "ru"
         self.fonts = ["Arial", "Times New Roman", "Calibri", "Georgia", "Helvetica", "Courier New"]
-        self.translations = {
-            "ru": {
-                "title_md": "Markdown → Word", "title_word": "Word → Markdown",
-                "settings": "Оформление документа", "font": "Шрифт", "size": "Размер",
-                "drop_md": "Перетащите файлы или папки Markdown сюда",
-                "drop_word": "Перетащите файлы или папки Word сюда",
-                "add_files": "Добавить файлы", "add_folder": "Добавить папку",
-                "remove": "Удалить выбранные", "clear": "Очистить очередь",
-                "files_tab": "Файлы", "text_tab": "Текст", "text_label": "Введите Markdown-текст",
-                "output": "Место сохранения", "output_auto": "Рядом с исходными файлами",
-                "choose_output": "Выбрать папку", "reset_output": "Сбросить",
-                "ready": "Готово к конвертации", "queued": "В очереди: {count}",
-                "converting": "Конвертация: {filename}",
-                "finished": "Конвертация завершена", "convert": "Конвертировать",
-                "toggle_md": "Режим: MD → Word", "toggle_word": "Режим: Word → MD",
-                "theme_dark": "Тёмная тема · Переключить на светлую",
-                "theme_light": "Светлая тема · Переключить на тёмную",
-                "no_files": "Добавьте файлы или папку для конвертации",
-                "empty_text": "Введите текст для конвертации", "save_as": "Сохранить как",
-                "errors": "Конвертация завершена с ошибками", "result": "Готово: {success}\nОшибок: {errors}",
-                "footnotes_heading": "Сноски",
-                "converted_ok": "Успешно конвертировано",
-                "convert_failed": "Ошибка при конвертации: {error}",
-            },
-            "en": {
-                "title_md": "Markdown → Word", "title_word": "Word → Markdown",
-                "settings": "Document appearance", "font": "Font", "size": "Size",
-                "drop_md": "Drop Markdown files or folders here",
-                "drop_word": "Drop Word files or folders here",
-                "add_files": "Add files", "add_folder": "Add folder",
-                "remove": "Remove selected", "clear": "Clear queue",
-                "files_tab": "Files", "text_tab": "Text", "text_label": "Enter Markdown text",
-                "output": "Save location", "output_auto": "Next to each source file",
-                "choose_output": "Choose folder", "reset_output": "Reset",
-                "ready": "Ready to convert", "queued": "In queue: {count}",
-                "converting": "Converting: {filename}",
-                "finished": "Conversion finished", "convert": "Convert",
-                "toggle_md": "Mode: MD → Word", "toggle_word": "Mode: Word → MD",
-                "theme_dark": "Dark theme · Switch to light",
-                "theme_light": "Light theme · Switch to dark",
-                "no_files": "Add files or a folder to convert",
-                "empty_text": "Enter text to convert", "save_as": "Save as",
-                "errors": "Conversion completed with errors", "result": "Complete: {success}\nErrors: {errors}",
-                "footnotes_heading": "Footnotes",
-                "converted_ok": "Converted successfully",
-                "convert_failed": "Conversion failed: {error}",
-            },
-        }
+        self.translations = TRANSLATIONS
         if isinstance(self.converter, MarkdownToWordConverter):
             self.converter.footnotes_heading = self._text["footnotes_heading"]
         self._set_icon()
@@ -220,10 +114,20 @@ class ConverterGUI(QMainWindow):
         self.size_spinbox.setRange(6, 72)
         self.size_spinbox.setValue(12)
         self.size_spinbox.valueChanged.connect(self._on_size_change)
+        self.preset_label = QLabel()
+        self.preset_combobox = QComboBox()
+        self.preset_combobox.addItem("", "default")
+        self.preset_combobox.addItem("", "gost")
+        self.preset_combobox.currentIndexChanged.connect(self._on_preset_change)
+        self.toc_checkbox = QCheckBox()
+        self.toc_checkbox.toggled.connect(self._apply_document_options)
         settings.addWidget(self.font_label)
         settings.addWidget(self.font_combobox, 1)
         settings.addWidget(self.size_label)
         settings.addWidget(self.size_spinbox)
+        settings.addWidget(self.preset_label)
+        settings.addWidget(self.preset_combobox)
+        settings.addWidget(self.toc_checkbox)
         layout.addWidget(self.settings_group)
 
         self.tabs = QTabWidget()
@@ -328,6 +232,7 @@ class ConverterGUI(QMainWindow):
             self.converter.default_font_name = self.font_combobox.currentText()
             self.converter.default_font_size = Pt(self.size_spinbox.value())
             self.converter.footnotes_heading = self._text["footnotes_heading"]
+            self._apply_document_options()
         self.selected_files = discover_sources(self.selected_files, self.current_converter_type)
         self._update_ui()
 
@@ -360,6 +265,10 @@ class ConverterGUI(QMainWindow):
         self.settings_group.setVisible(is_markdown)
         self.font_label.setText(text["font"])
         self.size_label.setText(text["size"])
+        self.preset_label.setText(text["preset"])
+        self.preset_combobox.setItemText(0, text["preset_default"])
+        self.preset_combobox.setItemText(1, text["preset_gost"])
+        self.toc_checkbox.setText(text["toc"])
         self.drop_hint.setText(text["drop_md"] if is_markdown else text["drop_word"])
         self.add_files_button.setText(text["add_files"])
         self.add_folder_button.setText(text["add_folder"])
@@ -404,6 +313,21 @@ class ConverterGUI(QMainWindow):
     def _on_size_change(self, value: int) -> None:
         if isinstance(self.converter, MarkdownToWordConverter):
             self.converter.default_font_size = Pt(value)
+
+    def _on_preset_change(self, _index: int) -> None:
+        # Кегль следует за пресетом, только если пользователь его не трогал:
+        # 12 pt для обычного оформления, 14 pt для ГОСТ.
+        preset = self.preset_combobox.currentData() or "default"
+        if self.size_spinbox.value() in {int(size) for size in PRESET_FONT_SIZE.values()}:
+            self.size_spinbox.setValue(int(PRESET_FONT_SIZE[preset]))
+        self._apply_document_options()
+
+    def _apply_document_options(self, *_args: Any) -> None:
+        if isinstance(self.converter, MarkdownToWordConverter):
+            self.converter.document_options = DocumentOptions(
+                preset=self.preset_combobox.currentData() or "default",
+                toc=self.toc_checkbox.isChecked(),
+            )
 
     def _select_files(self) -> None:
         suffix = "*.md *.markdown" if self.current_converter_type == "md_to_word" else "*.docx"
@@ -485,7 +409,9 @@ class ConverterGUI(QMainWindow):
                     )
                 else:
                     success_count += 1
-                    warnings.extend(f"{source.name}: {warning}" for warning in file_warnings)
+                    warnings.extend(
+                        _describe_warning(source.name, warning) for warning in file_warnings
+                    )
                 self.progress.setValue(index)
                 QApplication.processEvents()
 
@@ -525,7 +451,9 @@ class ConverterGUI(QMainWindow):
             return
         message = self._text["converted_ok"]
         if warnings:
-            message += "\n\n" + "\n".join(warnings)
+            message += "\n\n" + "\n".join(
+                _describe_warning(self._text["text_tab"], warning) for warning in warnings
+            )
         QMessageBox.information(self, self.windowTitle(), message)
 
 
