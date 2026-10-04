@@ -105,7 +105,7 @@ class MarkdownToWordConverterTests(unittest.TestCase):
         # to True (GfmDocxRenderer's own default) for the GUI to keep
         # fetching remote images unchanged. The MCP server is the only
         # caller that opts out, by passing allow_remote_images=False
-        # explicitly (see mcp_server.py).
+        # explicitly (see mdtoword/mcp_server/factory.py).
         self.assertIs(MarkdownToWordConverter().allow_remote_images, True)
 
     def test_image_roots_defaults_to_none(self) -> None:
@@ -115,7 +115,7 @@ class MarkdownToWordConverterTests(unittest.TestCase):
         # "unrestricted" value) for the GUI to keep resolving local images
         # from anywhere, exactly as before this restriction existed. The
         # MCP server is the only caller that narrows it, by passing
-        # image_roots explicitly (see mcp_server.py).
+        # image_roots explicitly (see mdtoword/mcp_server/factory.py).
         self.assertIsNone(MarkdownToWordConverter().image_roots)
 
 
@@ -141,7 +141,7 @@ class WordToMarkdownConverterTests(unittest.TestCase):
         self.assertIn("## Раздел", text)
         self.assertIn("**жирный**", text)
 
-    def test_inline_code_run_round_trips_with_the_original_wrapping(self) -> None:
+    def test_literal_backticks_in_plain_text_are_escaped(self) -> None:
         docx_path = self.root / "code.docx"
         document = Document()
         paragraph = document.add_paragraph()
@@ -153,9 +153,21 @@ class WordToMarkdownConverterTests(unittest.TestCase):
 
         text = output.read_text(encoding="utf-8")
         self.assertEqual(warnings, [])
-        # Ветка инлайн-кода оборачивает run.text ещё одной парой обратных
-        # кавычек — так же, как в оригинале mdtoword/app.py.
-        self.assertIn("``code``", text)
+        # Обратные кавычки здесь — обычный текст, а не код (шрифт не
+        # моноширинный), поэтому экранируются и читаются обратно как текст.
+        self.assertEqual(text, "\\`code\\`\n")
+
+    def test_monospace_run_becomes_inline_code(self) -> None:
+        docx_path = self.root / "mono.docx"
+        document = Document()
+        paragraph = document.add_paragraph("Вызов ")
+        paragraph.add_run("main()").font.name = "Courier New"
+        document.save(str(docx_path))
+        output = self.root / "mono.md"
+
+        WordToMarkdownConverter().convert_file(docx_path, output)
+
+        self.assertEqual(output.read_text(encoding="utf-8"), "Вызов `main()`\n")
 
     def test_missing_source_raises_conversion_error(self) -> None:
         with self.assertRaises(ConversionError):
@@ -163,7 +175,7 @@ class WordToMarkdownConverterTests(unittest.TestCase):
                 self.root / "нет-такого.docx", self.root / "out.md"
             )
 
-    def test_heading_level_above_six_emits_plain_text_without_inline_markup(self) -> None:
+    def test_heading_level_above_six_becomes_a_bold_paragraph_with_a_warning(self) -> None:
         docx_path = self.root / "heading7.docx"
         document = Document()
         # В шаблоне python-docx уже есть скрытый (latent) стиль "Heading 7":
@@ -177,10 +189,10 @@ class WordToMarkdownConverterTests(unittest.TestCase):
         warnings = WordToMarkdownConverter().convert_file(docx_path, output)
 
         text = output.read_text(encoding="utf-8")
-        self.assertEqual(warnings, [])
-        self.assertNotIn("#", text)
-        self.assertNotIn("**", text)
-        self.assertIn("жирный", text)
+        # В Markdown нет уровней глубже шестого: заголовок становится жирным
+        # абзацем, а не теряется молча, — об этом сообщает предупреждение.
+        self.assertEqual(text, "**жирный**\n")
+        self.assertEqual([warning.code for warning in warnings], ["heading_level_clamped"])
 
 
 class CoreIsolationTests(unittest.TestCase):

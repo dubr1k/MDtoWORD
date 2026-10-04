@@ -16,14 +16,23 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from docx import Document
 from docx.shared import Pt
 
+from .errors import ConversionError, ConversionWarning
 from .gfm_renderer import GfmDocxRenderer
+from .options import DocumentOptions
 
+# Обратное направление живёт в отдельном модуле; импорт здесь сохраняет
+# публичный адрес ``mdtoword.converters.WordToMarkdownConverter``.
+from .docx_to_markdown import WordToMarkdownConverter
 
-class ConversionError(Exception):
-    """Конвертация не удалась. Сообщение пригодно для показа без перевода."""
+__all__ = [
+    "ConversionError",
+    "ConversionWarning",
+    "DocumentOptions",
+    "MarkdownToWordConverter",
+    "WordToMarkdownConverter",
+]
 
 
 class MarkdownToWordConverter:
@@ -36,12 +45,15 @@ class MarkdownToWordConverter:
         footnotes_heading: str = "Footnotes",
         allow_remote_images: bool = True,
         image_roots: Sequence[Path] | None = None,
+        *,
+        document_options: DocumentOptions | None = None,
     ) -> None:
         self.default_font_name = font_name
         self.default_font_size = font_size
         self.footnotes_heading = footnotes_heading
         self.allow_remote_images = allow_remote_images
         self.image_roots = image_roots
+        self.document_options = document_options or DocumentOptions()
 
     def _render(self, content: str, source_path: Path | None) -> tuple[Any, list[str]]:
         """Отрендерить Markdown, переведя любой сбой рендеринга в ConversionError."""
@@ -52,6 +64,7 @@ class MarkdownToWordConverter:
                 self.footnotes_heading,
                 self.allow_remote_images,
                 self.image_roots,
+                document_options=self.document_options,
             ).render(content, source_path=source_path)
         except Exception as error:
             raise ConversionError(str(error)) from error
@@ -61,7 +74,7 @@ class MarkdownToWordConverter:
         """Прочитать исходник, переведя сбой чтения в ConversionError."""
         source_path = Path(input_path)
         try:
-            return source_path, source_path.read_text(encoding="utf-8")
+            return source_path, source_path.read_text(encoding="utf-8-sig")
         except (OSError, UnicodeDecodeError) as error:
             # UnicodeDecodeError — подкласс ValueError, а не OSError:
             # файл в CP1251 иначе улетел бы мимо контракта ConversionError.
@@ -97,85 +110,3 @@ class MarkdownToWordConverter:
         source_path, content = self._read_source(input_path)
         return self.preview_content(content, source_path)
 
-
-class WordToMarkdownConverter:
-    """Извлекает Markdown из документа Word.
-
-    Преобразование лоссовое: распознаются заголовки по стилям ``Heading N``,
-    жирный и курсивный текст по run'ам и таблицы. Списки, изображения,
-    формулы и сноски схлопываются в плоский текст.
-    """
-
-    def convert_file(
-        self, input_path: str | Path, output_path: str | Path
-    ) -> list[str]:
-        """Сконвертировать документ Word в Markdown-файл."""
-        try:
-            document = Document(str(input_path))
-            lines = self._paragraph_lines(document)
-            lines.extend(self._table_lines(document))
-            Path(output_path).write_text("\n".join(lines), encoding="utf-8")
-        except Exception as error:
-            raise ConversionError(str(error)) from error
-        return []
-
-    def _paragraph_lines(self, document: Any) -> list[str]:
-        lines: list[str] = []
-        for paragraph in document.paragraphs:
-            if not paragraph.text.strip():
-                lines.append("")
-                continue
-            level = self._heading_level(paragraph)
-            if 1 <= level <= 6:
-                lines.append("#" * level + " " + paragraph.text)
-            elif level:
-                # Word допускает Heading 7-9; в Markdown такого уровня нет,
-                # поэтому текст идёт как есть, без inline-разметки — как в оригинале.
-                lines.append(paragraph.text)
-            else:
-                lines.append(self._inline_markup(paragraph))
-        return lines
-
-    @staticmethod
-    def _heading_level(paragraph: Any) -> int:
-        """Вернуть распознанный уровень заголовка (Word допускает Heading 7-9) или 0."""
-        style = paragraph.style
-        style_name = (style.name or "") if style is not None else ""
-        if not style_name.startswith("Heading "):
-            return 0
-        try:
-            return int(style_name.split()[-1])
-        except ValueError:
-            return 0
-
-    @staticmethod
-    def _inline_markup(paragraph: Any) -> str:
-        parts: list[str] = []
-        for run in paragraph.runs:
-            text = run.text
-            if run.bold and run.italic:
-                parts.append(f"***{text}***")
-            elif run.bold:
-                parts.append(f"**{text}**")
-            elif run.italic:
-                parts.append(f"*{text}*")
-            elif text.strip().startswith("`") and text.strip().endswith("`"):
-                parts.append(f"`{text}`")
-            else:
-                parts.append(text)
-        return "".join(parts)
-
-    @staticmethod
-    def _table_lines(document: Any) -> list[str]:
-        lines: list[str] = []
-        for table in document.tables:
-            if not table.rows:
-                continue
-            lines.append("")
-            header = [cell.text.strip() for cell in table.rows[0].cells]
-            lines.append("| " + " | ".join(header) + " |")
-            lines.append("| " + " | ".join(["---"] * len(header)) + " |")
-            for row in table.rows[1:]:
-                lines.append("| " + " | ".join(cell.text.strip() for cell in row.cells) + " |")
-            lines.append("")
-        return lines

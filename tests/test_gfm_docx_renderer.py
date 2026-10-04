@@ -11,9 +11,12 @@ from docx.shared import Pt
 from docx.shared import RGBColor
 
 from mdtoword.gfm_renderer import _MAX_REMOTE_IMAGE_BYTES, GfmDocxRenderer, _is_remote_target
+from mdtoword.options import DocumentOptions
+from mdtoword.safe_fetch import RemoteFetchError
 
 
 _MATH_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
+_SECTION_FOOTNOTES = DocumentOptions(footnotes="section")
 
 # The smallest well-formed PNG: an 8-byte signature, an IHDR chunk describing
 # a single transparent pixel, an (empty-payload) IDAT chunk, and IEND. Real
@@ -23,16 +26,6 @@ _MINIMAL_PNG = (
     b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
     b"\x00\x00\x05\x00\x01\x05-\xb4\x00\x00\x00\x00\x00IEND\xaeB`\x82"
 )
-
-
-def _urlopen_response(data: bytes) -> MagicMock:
-    """Mock of ``urlopen(...)``'s return value, usable as a context manager."""
-    response = MagicMock()
-    response.read.return_value = data
-    context = MagicMock()
-    context.__enter__.return_value = response
-    context.__exit__.return_value = False
-    return context
 
 
 class _FakeImageToken:
@@ -64,16 +57,25 @@ def _renderer_ready_for_direct_image_append(renderer: GfmDocxRenderer) -> GfmDoc
 
 # Every style GfmDocxRenderer applies to a paragraph somewhere in the
 # renderer: Normal for plain body paragraphs, Heading 1-9 for headings,
-# Quote for blockquotes, and List Bullet/List Number for list items.
+# Quote for blockquotes, and List Paragraph (with real numbering) for list
+# items.
 _STYLES_THE_RENDERER_APPLIES = (
     ["Normal"] + [f"Heading {level}" for level in range(1, 10)]
-    + ["Quote", "List Bullet", "List Number"]
+    + ["Quote", "List Paragraph"]
 )
 
 
 def _equations(paragraph):
-    """Every Word equation directly inside this paragraph."""
-    return paragraph._p.findall(f"{_MATH_NS}oMath")
+    """Every Word equation in this paragraph, display ones wrapped in m:oMathPara included."""
+    return list(paragraph._p.iter(f"{_MATH_NS}oMath"))
+
+
+def _footnotes_xml(document):
+    """The XML of the document's footnotes part, or "" if it has none."""
+    for relationship in document.part.rels.values():
+        if relationship.reltype.endswith("/footnotes"):
+            return relationship.target_part.blob.decode("utf-8")
+    return ""
 
 
 def _equation_text(equation):
@@ -144,12 +146,12 @@ class GfmDocxRendererTests(unittest.TestCase):
     def test_remote_image_not_fetched_when_disallowed(self):
         renderer = GfmDocxRenderer("Arial", Pt(12), allow_remote_images=False)
 
-        with patch("mdtoword.gfm_renderer.urlopen") as mock_urlopen:
+        with patch("mdtoword.gfm_renderer.images.fetch_image") as mock_fetch:
             document, warnings = renderer.render(
                 "![diagram](https://example.invalid/x.png)"
             )
 
-        mock_urlopen.assert_not_called()
+        mock_fetch.assert_not_called()
         self.assertEqual(
             warnings,
             [
@@ -157,32 +159,35 @@ class GfmDocxRendererTests(unittest.TestCase):
                 "(network access is disabled; pass fetch_remote_images=true to allow it)"
             ],
         )
+        self.assertEqual(warnings[0].code, "image_remote_disabled")
+        self.assertEqual(warnings[0].line, 1)
         self.assertIn("[diagram]", document.paragraphs[0].text)
 
     def test_remote_image_fetched_by_default(self):
         renderer = GfmDocxRenderer("Arial", Pt(12))
 
-        with patch("mdtoword.gfm_renderer.urlopen") as mock_urlopen:
-            mock_urlopen.return_value = _urlopen_response(_MINIMAL_PNG)
+        with patch("mdtoword.gfm_renderer.images.fetch_image", return_value=_MINIMAL_PNG) as mock_fetch:
             document, warnings = renderer.render(
                 "![diagram](https://example.invalid/x.png)"
             )
 
-        mock_urlopen.assert_called_once()
+        mock_fetch.assert_called_once()
+        self.assertEqual(mock_fetch.call_args.kwargs["max_bytes"], _MAX_REMOTE_IMAGE_BYTES)
         self.assertEqual(warnings, [])
+        self.assertEqual(len(document.inline_shapes), 1)
 
     def test_local_image_is_unaffected_by_allow_remote_images_false(self):
         renderer = GfmDocxRenderer("Arial", Pt(12), allow_remote_images=False)
 
         with tempfile.TemporaryDirectory() as directory:
             (Path(directory) / "diagram.png").write_bytes(_MINIMAL_PNG)
-            with patch("mdtoword.gfm_renderer.urlopen") as mock_urlopen:
+            with patch("mdtoword.gfm_renderer.images.fetch_image") as mock_fetch:
                 document, warnings = renderer.render(
                     "![diagram](diagram.png)",
                     source_path=Path(directory) / "source.md",
                 )
 
-        mock_urlopen.assert_not_called()
+        mock_fetch.assert_not_called()
         self.assertEqual(warnings, [])
 
     def test_is_remote_target_covers_http_unc_and_protocol_relative(self):
@@ -199,7 +204,7 @@ class GfmDocxRendererTests(unittest.TestCase):
         )
         target = "//attacker.example.com/share/a.png"
 
-        with patch("mdtoword.gfm_renderer.Path") as mock_path:
+        with patch("mdtoword.gfm_renderer.images.Path") as mock_path:
             renderer._append_image(_FakeImageToken(target), None)
 
         mock_path.assert_not_called()
@@ -218,7 +223,7 @@ class GfmDocxRendererTests(unittest.TestCase):
         )
         target = r"\\attacker.example.com\share\a.png"
 
-        with patch("mdtoword.gfm_renderer.Path") as mock_path:
+        with patch("mdtoword.gfm_renderer.images.Path") as mock_path:
             renderer._append_image(_FakeImageToken(target), None)
 
         mock_path.assert_not_called()
@@ -238,65 +243,94 @@ class GfmDocxRendererTests(unittest.TestCase):
         renderer = _renderer_ready_for_direct_image_append(GfmDocxRenderer("Arial", Pt(12)))
         target = r"\\attacker.example.com\share\a.png"
 
-        with patch("mdtoword.gfm_renderer.urlopen") as mock_urlopen:
+        with patch("mdtoword.gfm_renderer.images.fetch_image") as mock_fetch:
             renderer._append_image(_FakeImageToken(target), None)
 
-        mock_urlopen.assert_not_called()
+        mock_fetch.assert_not_called()
         self.assertEqual(renderer.warnings, [f"Image not found: {target}"])
         self.assertIn("[diagram]", renderer._paragraph.text)
 
     def test_remote_image_over_size_cap_falls_back_with_warning(self):
         renderer = GfmDocxRenderer("Arial", Pt(12))
-        oversized = b"x" * (_MAX_REMOTE_IMAGE_BYTES + 1)
-        response_context = _urlopen_response(oversized)
 
-        with patch("mdtoword.gfm_renderer.urlopen") as mock_urlopen:
-            mock_urlopen.return_value = response_context
+        with patch(
+            "mdtoword.gfm_renderer.images.fetch_image",
+            side_effect=RemoteFetchError("response too large"),
+        ) as mock_fetch:
             document, warnings = renderer.render(
                 "![diagram](https://example.invalid/x.png)"
             )
 
-        mock_urlopen.assert_called_once()
-        # The mock's read() ignores what it is called with (it always
-        # returns the full ``oversized`` buffer regardless), so the only way
-        # to pin the actual memory bound -- reading at most one byte past the
-        # cap, never the whole response -- is to assert the call argument
-        # itself. Reverting to an unbounded ``response.read()`` would leave
-        # every other assertion here green.
-        response_context.__enter__.return_value.read.assert_called_once_with(
-            _MAX_REMOTE_IMAGE_BYTES + 1
-        )
+        # The memory bound itself lives in safe_fetch (and is tested there);
+        # what the renderer must do is hand it the cap.
+        self.assertEqual(mock_fetch.call_args.kwargs["max_bytes"], _MAX_REMOTE_IMAGE_BYTES)
         self.assertEqual(len(warnings), 1)
         self.assertIn("too large", warnings[0])
         self.assertIn(str(_MAX_REMOTE_IMAGE_BYTES), warnings[0])
+        self.assertEqual(warnings[0].code, "image_too_large")
         self.assertIn("[diagram]", document.paragraphs[0].text)
 
-    def test_renders_footnotes_as_a_final_section(self):
-        document, warnings = self.renderer.render(
-            "Text with a footnote.[^1]\n\n[^1]: Footnote text."
-        )
+    def test_remote_fetch_refusal_falls_back_with_its_reason(self):
+        renderer = GfmDocxRenderer("Arial", Pt(12))
+
+        with patch(
+            "mdtoword.gfm_renderer.images.fetch_image",
+            side_effect=RemoteFetchError("address 127.0.0.1 is not publicly routable"),
+        ):
+            document, warnings = renderer.render("![d](https://localhost.example/x.png)")
+
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0].code, "image_fetch_failed")
+        self.assertIn("not publicly routable", warnings[0])
+        self.assertIn("[d]", document.paragraphs[0].text)
+
+    def test_section_footnotes_render_as_a_final_section(self):
+        document, warnings = GfmDocxRenderer(
+            "Arial", Pt(12), document_options=_SECTION_FOOTNOTES
+        ).render("Text with a footnote.[^1]\n\n[^1]: Footnote text.")
 
         text = "\n".join(paragraph.text for paragraph in document.paragraphs)
         self.assertIn("Footnotes", text)
-        self.assertIn("Footnote text.", text)
+        # Label and text share one paragraph; no list numbering leaks in.
+        notes = [p for p in document.paragraphs if "Footnote text." in p.text]
+        self.assertEqual(len(notes), 1)
+        self.assertTrue(notes[0].text.startswith("1 "))
+        self.assertNotIn("w:numPr", notes[0]._p.xml)
         self.assertEqual(warnings, [])
 
-    def test_footnotes_heading_defaults_to_english(self):
-        document, _ = self.renderer.render(
-            "Text with a footnote.[^1]\n\n[^1]: Footnote text."
-        )
+    def test_section_footnotes_heading_defaults_to_english(self):
+        document, _ = GfmDocxRenderer(
+            "Arial", Pt(12), document_options=_SECTION_FOOTNOTES
+        ).render("Text with a footnote.[^1]\n\n[^1]: Footnote text.")
 
         headings = [p.text for p in document.paragraphs if p.style.name == "Heading 2"]
         self.assertEqual(headings, ["Footnotes"])
 
-    def test_footnotes_heading_can_be_localized(self):
-        renderer = GfmDocxRenderer("Arial", Pt(12), footnotes_heading="Сноски")
+    def test_section_footnotes_heading_can_be_localized(self):
+        renderer = GfmDocxRenderer(
+            "Arial", Pt(12), footnotes_heading="Сноски", document_options=_SECTION_FOOTNOTES
+        )
         document, _ = renderer.render(
             "Text with a footnote.[^1]\n\n[^1]: Footnote text."
         )
 
         headings = [p.text for p in document.paragraphs if p.style.name == "Heading 2"]
         self.assertEqual(headings, ["Сноски"])
+
+    def test_footnotes_are_native_word_footnotes_by_default(self):
+        document, warnings = self.renderer.render(
+            "Text with a footnote.[^1] Again[^1].\n\n[^1]: Footnote **bold** text."
+        )
+
+        body = "\n".join(paragraph.text for paragraph in document.paragraphs)
+        self.assertNotIn("Footnote", body)
+        references = document.element.body.findall(".//" + qn("w:footnoteReference"))
+        self.assertEqual(len(references), 2)
+        footnotes_xml = _footnotes_xml(document)
+        # Referenced twice -> two Word footnotes with the same content.
+        self.assertEqual(footnotes_xml.count("Footnote "), 2)
+        self.assertIn("<w:b/>", footnotes_xml)
+        self.assertEqual(warnings, [])
 
     def test_headings_are_black(self):
         document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
@@ -448,15 +482,28 @@ class GfmDocxRendererTests(unittest.TestCase):
         self.assertEqual(body.cells[1].paragraphs[0].alignment, WD_ALIGN_PARAGRAPH.RIGHT)
         self.assertEqual(body.cells[2].paragraphs[0].alignment, WD_ALIGN_PARAGRAPH.CENTER)
 
-    def test_table_cell_math_is_kept_verbatim_with_a_warning(self):
+    def test_table_cell_math_becomes_a_real_equation(self):
         document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
             "| formula | plain |\n|---|---|\n| $x^2$ | c |\n"
         )
         cell = document.tables[0].cell(1, 0)
-        self.assertEqual(cell.text, "$x^2$")
-        self.assertEqual(_equations(cell.paragraphs[0]), [])
-        self.assertEqual(len(warnings), 1)
-        self.assertIn("table cell", warnings[0])
+        self.assertEqual(len(_equations(cell.paragraphs[0])), 1)
+        self.assertEqual(warnings, [])
+
+    def test_table_cells_keep_inline_formatting_and_links(self):
+        document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+            "| a | b |\n|---|---|\n| **bold** *it* `code` | [link](https://example.com) |\n"
+        )
+        table = document.tables[0]
+        runs = table.cell(1, 0).paragraphs[0].runs
+        self.assertTrue(any(run.bold for run in runs))
+        self.assertTrue(any(run.italic for run in runs))
+        self.assertTrue(any(run.font.name == "Courier New" for run in runs))
+        self.assertIn("w:hyperlink", table.cell(1, 1).paragraphs[0]._p.xml)
+        # The header row is bold and repeats on every page.
+        self.assertTrue(all(run.bold for run in table.cell(0, 0).paragraphs[0].runs))
+        self.assertIn("w:tblHeader", table.rows[0]._tr.xml)
+        self.assertEqual(warnings, [])
 
     def test_escaped_inline_math_becomes_equations_not_text(self):
         document, warnings = GfmDocxRenderer("Times New Roman", Pt(12)).render(
@@ -963,18 +1010,21 @@ class GfmDocxRendererTests(unittest.TestCase):
         self.assertIn(f"Broken ${unsupported}$ formula.", text)
 
     def test_footnote_paragraphs_are_justified_like_body_lists(self):
-        document, _ = GfmDocxRenderer("Times New Roman", Pt(12)).render(
+        document, _ = GfmDocxRenderer(
+            "Times New Roman", Pt(12), document_options=_SECTION_FOOTNOTES
+        ).render(
             "1. пункт списка\n\n"
             "Текст со сноской[^1]\n\n"
             "[^1]: Содержимое сноски.\n"
         )
-        list_number_paragraphs = [
+        list_paragraphs = [
             paragraph
             for paragraph in document.paragraphs
-            if paragraph.style.name == "List Number"
+            if paragraph.style.name == "List Paragraph"
         ]
-        self.assertEqual(len(list_number_paragraphs), 2)
-        for paragraph in list_number_paragraphs:
+        self.assertEqual(len(list_paragraphs), 1)
+        note = [p for p in document.paragraphs if "Содержимое сноски." in p.text][0]
+        for paragraph in list_paragraphs + [note]:
             self.assertEqual(paragraph.alignment, WD_ALIGN_PARAGRAPH.JUSTIFY)
 
     def test_every_applied_style_uses_the_chosen_font_with_no_theme_override(self):
