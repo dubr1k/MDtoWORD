@@ -1,89 +1,85 @@
 ═══════════════════════════════════════════════════════════
-  MARKDOWN TO WORD CONVERTER - QUICK GUIDE
+  MDtoWORD — MARKDOWN TO WORD CONVERTER — QUICK GUIDE
 ═══════════════════════════════════════════════════════════
 
-🚀 QUICK START (for Windows)
-────────────────────────────────────────────
-1. Double-click the file "launch_converter.bat"
-2. The program will automatically install required libraries (if needed)
-3. The converter window will open
+🚀 STARTING
+────────────────────────────────────────────────────────────
+Ready-made build: open MDtoWORD.app (macOS) or MDtoWORD.exe (Windows).
 
-📋 MANUAL LAUNCH
-────────────────────────────────────────────
-1. Install dependencies (once):
-   pip install python-docx
-
-2. Run the script:
+From source (Python 3.10 or newer):
+   pip install -r requirements.txt
    python -m mdtoword
 
+
 🎯 HOW TO USE
-────────────────────────────────────────────
-1. In the program window, click "Select .md files"
-2. Choose one or more .md files (multiple selection supported)
-3. Click "Select folder" to choose where to save results
-4. Click "Convert"
-5. Done! The .docx files are saved in the selected folder
+────────────────────────────────────────────────────────────
+1. Drop .md files or whole folders onto the window
+   (or press "Add files" / "Add folder").
+2. Optionally pick the font, size, style ("Standard" or
+   "GOST 7.32") and tick "Table of contents".
+3. "Save location": by default each result goes next to its
+   source; "Choose folder" sends everything to one folder.
+4. Press "Convert".
+5. Warnings in the result dialog name the file and line:
+   report.md:42: Image not found: chart.png
 
-✨ SUPPORTED FEATURES
-────────────────────────────────────────────
-✓ All heading levels (# ## ### etc.)
-✓ Bold text (**text**)
-✓ Italic text (*text*)
-✓ Bold italic (***text***)
-✓ Tables with borders and formatting
-✓ Bulleted lists (-, *, +)
-✓ Numbered lists (1. 2. 3.)
-✓ Code blocks (```)
-✓ Horizontal lines (---)
-✓ Nested formatting inside tables
+The "Text" tab takes Markdown pasted from the clipboard and saves
+a .docx without a source file.
+The "Mode" switch in the footer flips the direction: Word → Markdown.
 
-📝 MARKDOWN SYNTAX EXAMPLES
-────────────────────────────────────────────
 
-Headings:
-  # This is Heading 1
-  ## This is Heading 2
+✨ WHAT IS SUPPORTED
+────────────────────────────────────────────────────────────
+✓ Headings (# … ######) with bookmarks; links [text](#heading)
+✓ **bold**, *italic*, ~~strikethrough~~, `code`, H~2~O, x^2^, ==highlight==
+✓ Lists with real Word numbering, nested, starting at "5."
+✓ Task lists (- [ ] / - [x]) and definition lists
+✓ Tables: alignment, formatting and formulas inside cells,
+  a "Table: …" caption next to the table
+✓ Images (PNG, JPEG, GIF, WebP, SVG…) — scaled to the page width;
+  an image on its own becomes a captioned figure
+✓ Blockquotes, GitHub alerts (> [!NOTE], > [!WARNING] …)
+✓ Code blocks
+✓ Footnotes [^1] — native Word footnotes at the bottom of the page
+✓ Front matter (title, author, date, lang…) and [TOC] — a table of contents
+✓ LaTeX formulas ($…$, $$…$$, align, aligned…) — native Word equations
+✓ Simple HTML: <br>, <sub>, <sup>, <kbd>, <mark>, <details>…
 
-Formatting:
-  **bold**
-  *italic*
-  ***bold italic***
 
-Table:
-  | Column 1 | Column 2 |
-  |-----------|-----------|
-  | Cell 1    | Cell 2    |
+📝 A FEW RULES
+────────────────────────────────────────────────────────────
+- Paragraphs are separated by a blank line. A single newline
+  inside a paragraph is a space. Line break: two spaces or \
+  at the end of the line.
+- Write a literal dollar as \$ — otherwise $…$ becomes a formula.
+- Equation number: $$ x = 1 $$ (1) or \tag{1} inside the formula.
 
-List:
-  - Item 1
-  - Item 2
 
-  1. First
-  2. Second
+🎨 THE "GOST 7.32" STYLE
+────────────────────────────────────────────────────────────
+A4, margins 30/15/20/20 mm, Times New Roman 14 pt, 1.5 spacing,
+1.25 cm first-line indent, "Рисунок N — …", "Таблица N — …",
+page number centred at the bottom.
 
-🔧 REQUIREMENTS
-────────────────────────────────────────────
-- Python 3.7 or higher
-- python-docx library (installed automatically)
 
 ❓ FAQ
-────────────────────────────────────────────
-Q: Can I convert multiple files at once?
-A: Yes! Just select several files at once.
+────────────────────────────────────────────────────────────
+Q: Word asks whether to update fields when opening the document?
+A: The document has a table of contents — allow it and Word adds
+   the page numbers.
 
-Q: What font is used in Word?
-A: Times New Roman, 12pt, black color.
+Q: A formula stayed as text?
+A: The result dialog names the line and the unsupported command.
+   Rewrite the formula with supported constructs (see README).
 
-Q: Is table formatting preserved?
-A: Yes, tables are created with borders and formatting.
+Q: An image did not make it into the document?
+A: Paths are relative to the .md file. If the file is missing,
+   [alt text] appears instead, with a warning.
 
-Q: Can I remove files from the list?
-A: Yes, select files in the list and click "Delete selected".
 
-📧 TROUBLESHOOTING
-────────────────────────────────────────────
-If the program doesn’t start:
-1. Make sure Python is installed: python --version
-2. Install dependencies: pip install python-docx
-3. Check that .md files exist and are readable
+🤖 FOR AGENTS
+────────────────────────────────────────────────────────────
+MCP server: pip install ".[mcp]", then the mdtoword-mcp command.
+Details: README, section "MCP server".
+
 ═══════════════════════════════════════════════════════════
