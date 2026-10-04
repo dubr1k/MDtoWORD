@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mdtoword"
+version = "1.2.0"
+description = "Markdown ↔ Word (.docx) converter: desktop GUI and an MCP server for agents"
+readme = "README.md"
+requires-python = ">=3.10"
+# Те же пины, что в requirements-core.txt: ядро конвертации без GUI и без MCP.
+dependencies = [
+    "python-docx==1.1.2",
+    "Pillow==12.0.0",
+    "markdown-it-py==4.0.0",
+    "mdit-py-plugins==0.5.0",
+    "linkify-it-py==2.0.3",
+]
+
+[project.optional-dependencies]
+mcp = ["mcp==1.28.1"]
+gui = ["PyQt6==6.10.2"]
+
+[project.scripts]
+mdtoword-mcp = "mdtoword.mcp_server:main"
+
+[project.gui-scripts]
+mdtoword = "mdtoword.app:main"
+
+# mdtoword состоит из подпакетов (gui, ooxml, mcp_server, …): находим их все.
+# namespaces = false — пакетом считается только каталог с __init__.py, иначе
+# в колесо попали бы и каталоги вроде __pycache__.
+[tool.setuptools.packages.find]
+include = ["mdtoword", "mdtoword.*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+mdtoword = ["agent_guide.md"]

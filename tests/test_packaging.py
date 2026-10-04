@@ -14,9 +14,17 @@ sets are identical.
 from pathlib import Path
 import unittest
 
+try:
+    import tomllib
+except ImportError:  # pragma: no cover - Python 3.10
+    tomllib = None
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _ENVIRONMENT_YML = _REPO_ROOT / "environment.yml"
 _REQUIREMENTS_TXT = _REPO_ROOT / "requirements.txt"
+_REQUIREMENTS_CORE_TXT = _REPO_ROOT / "requirements-core.txt"
+_REQUIREMENTS_MCP_TXT = _REPO_ROOT / "requirements-mcp.txt"
+_PYPROJECT_TOML = _REPO_ROOT / "pyproject.toml"
 
 
 def _parse_requirements(path: Path) -> dict[str, str]:
@@ -92,6 +100,56 @@ class PackagingTests(unittest.TestCase):
             "environment.yml's pip block must list the exact same packages "
             "and pinned versions as requirements.txt",
         )
+
+
+
+def _pins(requirements: list[str]) -> dict[str, str]:
+    """Map package name -> pinned version from PEP 508 ``name==version`` strings."""
+    pins: dict[str, str] = {}
+    for requirement in requirements:
+        name, separator, version = requirement.partition("==")
+        if not separator:
+            raise ValueError(f"Unpinned requirement in pyproject.toml: {requirement!r}")
+        pins[name.strip()] = version.strip()
+    return pins
+
+
+@unittest.skipIf(tomllib is None, "tomllib needs Python 3.11+")
+class PyprojectTests(unittest.TestCase):
+    """``pyproject.toml`` repeats the pins of the requirements files; keep them equal."""
+
+    def setUp(self) -> None:
+        with _PYPROJECT_TOML.open("rb") as file:
+            pyproject = tomllib.load(file)
+        self.project = pyproject["project"]
+        self.setuptools = pyproject["tool"]["setuptools"]
+
+    def test_core_dependencies_match_requirements_core_txt(self) -> None:
+        self.assertEqual(
+            _pins(self.project["dependencies"]),
+            _parse_requirements(_REQUIREMENTS_CORE_TXT),
+        )
+
+    def test_extras_match_the_mcp_and_gui_requirements(self) -> None:
+        core = _parse_requirements(_REQUIREMENTS_CORE_TXT)
+        mcp_only = {
+            name: version
+            for name, version in _parse_requirements(_REQUIREMENTS_MCP_TXT).items()
+            if name not in core
+        }
+        gui_only = {
+            name: version
+            for name, version in _parse_requirements(_REQUIREMENTS_TXT).items()
+            if name not in core
+        }
+        extras = self.project["optional-dependencies"]
+
+        self.assertEqual(_pins(extras["mcp"]), mcp_only)
+        self.assertEqual(_pins(extras["gui"]), gui_only)
+
+    def test_agent_guide_ships_as_package_data(self) -> None:
+        self.assertIn("agent_guide.md", self.setuptools["package-data"]["mdtoword"])
+        self.assertTrue((_REPO_ROOT / "mdtoword" / "agent_guide.md").is_file())
 
 
 if __name__ == "__main__":
