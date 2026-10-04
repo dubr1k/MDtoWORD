@@ -16,6 +16,7 @@ from mdtoword.latex_omml import (
     _UPRIGHT_FUNCTIONS,
     UnsupportedLatexError,
     latex_to_omml,
+    split_equation_tag,
 )
 
 # python-docx registers a custom lxml element class per known tag, but it
@@ -189,7 +190,9 @@ class LatexToOmmlTests(unittest.TestCase):
         unknown commands, and the halves of a pair used on their own."""
         must_raise = [
             (r"\qedsymbol", "qedsymbol"),
-            (r"\begin{aligned} a \end{aligned}", "aligned"),
+            # `aligned` used to be the example here; it is supported now, so
+            # an environment that never will be stands in for it.
+            (r"\begin{tikzcd} a \end{tikzcd}", "tikzcd"),
             (r"\left( x", "left"),
             (r"\right)", "right"),
             (r"\end{pmatrix}", "end"),
@@ -971,6 +974,1053 @@ class ArrayAndSubstackTests(unittest.TestCase):
 
         self.assertEqual(
             len(body.findall("m:oMath/m:nary/m:sub/m:m/m:mr", MATH_NS)), 2)
+
+
+def _val(element, path):
+    """The `m:val` of the element at `path` under `element`."""
+    found = element.find(path, MATH_NS)
+    if found is None:
+        raise AssertionError(f"{path} not found")
+    return found.get(qn("m:val"))
+
+
+def _aligned_runs(line):
+    """Every run in `line` carrying an alignment point, with its text."""
+    return [
+        "".join(t.text or "" for t in run.iter(qn("m:t")))
+        for run in line.iter(qn("m:r"))
+        if run.find("m:rPr/m:aln", MATH_NS) is not None
+    ]
+
+
+def _run_properties(run):
+    """`{local-name: m:val}` of a run's <m:rPr> children."""
+    properties = run.find("m:rPr", MATH_NS)
+    if properties is None:
+        return {}
+    return {child.tag.split("}")[-1]: child.get(qn("m:val"))
+            for child in properties}
+
+
+def _word_tags(run):
+    """Local names of the <w:rPr> children of an <m:r>."""
+    properties = run.find(qn("w:rPr"))
+    return [] if properties is None else _tags(properties)
+
+
+def _runs(element):
+    return list(element.iter(qn("m:r")))
+
+
+class EnvironmentTests(unittest.TestCase):
+    r"""``aligned``, ``gathered``, ``split``, ``alignedat``, the top-level
+    amsmath environments, ``smallmatrix`` and the ``cases`` family."""
+
+    def test_aligned_is_one_equation_array_aligned_on_its_ampersands(self):
+        r"""The single most common LLM shape: ``$$\begin{aligned} a &= b \\
+        c &= d \end{aligned}$$`` must be ONE equation array whose ``=``
+        signs are the alignment points -- not a refusal, and not two
+        separate equations."""
+        element = latex_to_omml(
+            r"\begin{aligned} a &= b \\ c &= d \end{aligned}")
+        self.assertEqual(_tags(element), ["eqArr"])
+        lines = element.findall("m:eqArr/m:e", MATH_NS)
+        self.assertEqual([_texts(line) for line in lines],
+                         [["a", "=", "b"], ["c", "=", "d"]])
+        for line in lines:
+            self.assertEqual(_aligned_runs(line), ["="])
+
+    def test_aligned_matches_the_bare_multi_line_formula(self):
+        r"""``aligned`` means exactly what a bare ``a &= b \\ c &= d``
+        already meant, so the two must produce the same XML."""
+        self.assertEqual(
+            xml_of(r"\begin{aligned} a &= b \\ c &= d \end{aligned}"),
+            xml_of(r"a &= b \\ c &= d"))
+
+    def test_split_and_alignat_family_align_the_same_way(self):
+        for latex in (
+            r"\begin{split} a &= b \\ c &= d \end{split}",
+            r"\begin{align*} a &= b \\ c &= d \end{align*}",
+            r"\begin{align} a &= b \\ c &= d \end{align}",
+            r"\begin{flalign} a &= b \\ c &= d \end{flalign}",
+            r"\begin{eqnarray*} a &= b \\ c &= d \end{eqnarray*}",
+            r"\begin{alignat}{1} a &= b \\ c &= d \end{alignat}",
+            r"\begin{alignedat}{1} a &= b \\ c &= d \end{alignedat}",
+        ):
+            with self.subTest(latex=latex):
+                lines = latex_to_omml(latex).findall("m:eqArr/m:e", MATH_NS)
+                self.assertEqual(len(lines), 2)
+                for line in lines:
+                    self.assertEqual(_aligned_runs(line), ["="])
+
+    def test_alignedat_strips_its_column_count_and_keeps_every_point(self):
+        r"""``{2}`` is TeX's column-pair count, not content: it must not
+        show up as a "2" in the first line."""
+        element = latex_to_omml(
+            r"\begin{alignedat}{2} a &= b &\quad c &= d \\ "
+            r"e &= f &\quad g &= h \end{alignedat}")
+        lines = element.findall("m:eqArr/m:e", MATH_NS)
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(_texts(lines[0])[0], "a")
+        self.assertNotIn("2", _texts(lines[0]))
+        self.assertEqual(len(_aligned_runs(lines[0])), 3)
+
+    def test_aligned_takes_an_optional_vertical_position(self):
+        element = latex_to_omml(
+            r"\begin{aligned}[t] a &= b \\ c &= d \end{aligned}")
+        self.assertEqual(
+            _texts(element.findall("m:eqArr/m:e", MATH_NS)[0]), ["a", "=", "b"])
+        with self.assertRaises(UnsupportedLatexError) as caught:
+            latex_to_omml(r"\begin{aligned}[x] a &= b \end{aligned}")
+        self.assertIn("aligned", str(caught.exception))
+
+    def test_single_line_aligned_needs_no_array_and_no_marker(self):
+        r"""Inside ``aligned`` the ``&`` is unambiguous, so one line with
+        one is not the "literal ampersand" error -- it just has nothing to
+        align against."""
+        element = latex_to_omml(r"\begin{aligned} a &= b \end{aligned}")
+        self.assertEqual(_texts(element), ["a", "=", "b"])
+        self.assertIsNone(element.find(".//m:eqArr", MATH_NS))
+        self.assertIsNone(element.find(".//m:aln", MATH_NS))
+
+    def test_trailing_line_break_and_its_spacing_argument_are_dropped(self):
+        r"""``\\[4pt]`` is vertical spacing, not a bracketed "4pt"; a
+        final ``\\`` adds no empty line."""
+        element = latex_to_omml(
+            r"\begin{aligned} a &= b \\[4pt] c &= d \\ \end{aligned}")
+        lines = element.findall("m:eqArr/m:e", MATH_NS)
+        self.assertEqual([_texts(line) for line in lines],
+                         [["a", "=", "b"], ["c", "=", "d"]])
+
+    def test_a_bracket_that_is_not_a_length_stays_content(self):
+        lines = latex_to_omml(r"a \\ [b, c]").findall("m:eqArr/m:e", MATH_NS)
+        self.assertEqual(_texts(lines[1]), ["[", "b", ",", "c", "]"])
+
+    def test_gathered_stacks_lines_without_alignment(self):
+        element = latex_to_omml(
+            r"\begin{gathered} a = b \\ c + d = e \end{gathered}")
+        lines = element.findall("m:eqArr/m:e", MATH_NS)
+        self.assertEqual(len(lines), 2)
+        self.assertIsNone(element.find(".//m:aln", MATH_NS))
+        for latex in (r"\begin{gather*} a \\ b \end{gather*}",
+                      r"\begin{multline} a \\ b \end{multline}"):
+            with self.subTest(latex=latex):
+                self.assertEqual(
+                    len(latex_to_omml(latex).findall("m:eqArr/m:e", MATH_NS)), 2)
+
+    def test_ampersand_inside_gathered_is_refused_naming_it(self):
+        with self.assertRaises(UnsupportedLatexError) as caught:
+            latex_to_omml(r"\begin{gathered} a &= b \\ c \end{gathered}")
+        self.assertIn("gathered", str(caught.exception))
+
+    def test_equation_environment_is_just_its_content(self):
+        self.assertEqual(
+            xml_of(r"\begin{equation*} E = mc^2 \end{equation*}"),
+            xml_of(r"E = mc^2"))
+
+    def test_aligned_nests_inside_a_brace(self):
+        element = latex_to_omml(
+            r"\left\{ \begin{aligned} x &= 1 \\ y &= 2 \end{aligned} \right.")
+        self.assertEqual(_val(element, "m:d/m:dPr/m:begChr"), "{")
+        lines = element.findall("m:d/m:e/m:eqArr/m:e", MATH_NS)
+        self.assertEqual(len(lines), 2)
+        for line in lines:
+            self.assertEqual(_aligned_runs(line), ["="])
+
+    def test_aligned_nests_inside_a_matrix_cell(self):
+        r"""The inner environment owns its own ``&`` and ``\\``; the
+        matrix must still see exactly two cells."""
+        rows = latex_to_omml(
+            r"\begin{pmatrix} \begin{aligned} a &= b \\ c &= d \end{aligned}"
+            r" & x \end{pmatrix}").findall("m:d/m:e/m:m/m:mr", MATH_NS)
+        self.assertEqual(len(rows), 1)
+        cells = rows[0].findall("m:e", MATH_NS)
+        self.assertEqual(len(cells), 2)
+        self.assertEqual(_tags(cells[0]), ["eqArr"])
+        self.assertEqual(_texts(cells[1]), ["x"])
+
+    def test_mismatched_end_is_refused(self):
+        with self.assertRaises(UnsupportedLatexError) as caught:
+            latex_to_omml(r"\begin{aligned} a &= b \end{gathered}")
+        self.assertIn("gathered", str(caught.exception))
+
+    def test_smallmatrix_is_a_plain_matrix(self):
+        element = latex_to_omml(
+            r"\begin{smallmatrix} a & b \\ c & d \end{smallmatrix}")
+        self.assertEqual(_tags(element), ["m"])
+        self.assertEqual(len(element.findall("m:m/m:mr", MATH_NS)), 2)
+        self.assertEqual(
+            _val(latex_to_omml(
+                r"\begin{psmallmatrix} a \end{psmallmatrix}"),
+                "m:d/m:dPr/m:begChr"), "(")
+
+    def test_starred_matrix_takes_one_column_alignment(self):
+        matrix = latex_to_omml(
+            r"\begin{pmatrix*}[r] -1 & 2 \\ 3 & -4 \end{pmatrix*}"
+        ).find("m:d/m:e/m:m", MATH_NS)
+        self.assertEqual(
+            [_val(column, "m:mcPr/m:mcJc")
+             for column in matrix.findall("m:mPr/m:mcs/m:mc", MATH_NS)],
+            ["right", "right"])
+
+    def test_cases_family_fences_and_left_aligned_columns(self):
+        r"""``cases`` columns are left-aligned in LaTeX (``{ll}``), not
+        centred; ``rcases`` moves the brace to the right."""
+        fences = {
+            "cases": ("{", ""), "dcases": ("{", ""),
+            "rcases": ("", "}"), "drcases": ("", "}"),
+        }
+        for name, (begin, end) in fences.items():
+            with self.subTest(environment=name):
+                element = latex_to_omml(
+                    "\\begin{%s} x & x > 0 \\\\ -x & x \\le 0 \\end{%s}"
+                    % (name, name))
+                self.assertEqual(_val(element, "m:d/m:dPr/m:begChr"), begin)
+                self.assertEqual(_val(element, "m:d/m:dPr/m:endChr"), end)
+                matrix = element.find("m:d/m:e/m:m", MATH_NS)
+                self.assertEqual(
+                    [_val(column, "m:mcPr/m:mcJc")
+                     for column in matrix.findall("m:mPr/m:mcs/m:mc", MATH_NS)],
+                    ["left", "left"])
+                self.assertEqual(len(matrix.findall("m:mr", MATH_NS)), 2)
+
+    def test_starred_cases_set_the_condition_column_as_text(self):
+        r"""``cases*``: everything after ``&`` is text, with ``$...$`` for
+        math -- "if" must stay a word, not two italic variables."""
+        rows = latex_to_omml(
+            r"\begin{cases*} 1 & if $x > 0$ \\ 0 & otherwise \end{cases*}"
+        ).findall("m:d/m:e/m:m/m:mr", MATH_NS)
+        condition = rows[0].findall("m:e", MATH_NS)[1]
+        runs = _runs(condition)
+        self.assertEqual(_texts(condition), ["if ", "x", ">", "0"])
+        self.assertEqual(_run_properties(runs[0]), {"nor": "1"})
+        self.assertEqual(_run_properties(runs[1]), {"sty": "i"})
+        self.assertEqual(
+            _texts(rows[1].findall("m:e", MATH_NS)[1]), ["otherwise"])
+
+    def test_subarray_is_an_array(self):
+        matrix = latex_to_omml(
+            r"\begin{subarray}{l} i < j \\ k \end{subarray}").find("m:m", MATH_NS)
+        self.assertEqual(len(matrix.findall("m:mr", MATH_NS)), 2)
+        self.assertEqual(_val(matrix, "m:mPr/m:mcs/m:mc/m:mcPr/m:mcJc"), "left")
+
+
+class MathAlphabetTests(unittest.TestCase):
+    r"""``\mathbb`` and friends through ``<m:scr>``, ``\mathrm`` as upright
+    math, and the ``\text..`` family."""
+
+    def test_script_alphabets_set_scr_and_an_upright_style(self):
+        alphabets = {
+            "mathbb": "double-struck", "Bbb": "double-struck",
+            "mathbbm": "double-struck", "mathcal": "script",
+            "mathscr": "script", "mathfrak": "fraktur",
+            "mathsf": "sans-serif", "mathtt": "monospace",
+        }
+        for name, script in alphabets.items():
+            with self.subTest(command=name):
+                runs = _runs(latex_to_omml("\\%s{R}" % name))
+                self.assertEqual(len(runs), 1)
+                self.assertEqual(_tags(runs[0].find("m:rPr", MATH_NS)),
+                                 ["scr", "sty"])
+                self.assertEqual(_run_properties(runs[0]),
+                                 {"scr": script, "sty": "p"})
+
+    def test_alphabet_covers_its_whole_argument_and_only_it(self):
+        element = latex_to_omml(r"\mathbb{R}^n")
+        base, exponent = (element.find("m:sSup/m:e/m:r", MATH_NS),
+                          element.find("m:sSup/m:sup/m:r", MATH_NS))
+        self.assertEqual(_run_properties(base)["scr"], "double-struck")
+        self.assertNotIn("scr", _run_properties(exponent))
+
+    def test_bold_italic_spellings(self):
+        for latex in (r"\boldsymbol{x}", r"\bm{x}", r"\pmb{x}", r"\mathbfit{x}"):
+            with self.subTest(latex=latex):
+                self.assertEqual(
+                    _run_properties(_runs(latex_to_omml(latex))[0]), {"sty": "bi"})
+
+    def test_boldsymbol_makes_a_script_alphabet_bold(self):
+        run = _runs(latex_to_omml(r"\boldsymbol{\mathcal{A}}"))[0]
+        self.assertEqual(_run_properties(run), {"scr": "script", "sty": "b"})
+        outer = _runs(latex_to_omml(r"\mathcal{\boldsymbol{A}}"))[0]
+        self.assertEqual(_run_properties(outer), {"scr": "script", "sty": "b"})
+
+    def test_mathrm_is_upright_math_not_literal_text(self):
+        r"""``\mathrm{m^2}`` is a superscript in LaTeX -- reading it as the
+        literal text "m^2" was silently wrong."""
+        element = latex_to_omml(r"\mathrm{m^2}")
+        self.assertEqual(_tags(element), ["sSup"])
+        self.assertEqual(
+            _run_properties(element.find("m:sSup/m:e/m:r", MATH_NS)),
+            {"sty": "p"})
+        self.assertEqual(
+            _run_properties(_runs(latex_to_omml(r"\mathrm{\mu}"))[0]),
+            {"sty": "p"})
+        self.assertEqual(_texts(latex_to_omml(r"\mathrm{d}x")), ["d", "x"])
+        # Letters outside A-Z tokenize as plain characters; they must be
+        # upright too, or Word would italicise them.
+        for run in _runs(latex_to_omml(r"\mathrm{км}")):
+            self.assertEqual(_run_properties(run), {"sty": "p"})
+
+    def test_old_style_font_switches_last_to_the_end_of_their_group(self):
+        element = latex_to_omml(r"{\rm d}x + {\bf v} + {\cal L}")
+        runs = _runs(element)
+        self.assertEqual([_run_properties(run) for run in runs], [
+            {"sty": "p"}, {"sty": "i"}, {}, {"sty": "b"}, {},
+            {"scr": "script", "sty": "p"},
+        ])
+
+    def test_text_bold_and_italic_are_normal_text_with_word_formatting(self):
+        r"""``<m:nor>`` and ``<m:sty>`` exclude each other, so bold/italic
+        normal text is spelled with ``<w:b/>``/``<w:i/>`` -- placed after
+        ``<m:rPr>`` and before ``<m:t>``, as CT_R orders them."""
+        cases = {
+            r"\textbf{bold}": ["b"], r"\textit{word}": ["i"],
+            r"\emph{word}": ["i"], r"\text{plain}": [],
+        }
+        for latex, word in cases.items():
+            with self.subTest(latex=latex):
+                run = _runs(latex_to_omml(latex))[0]
+                self.assertEqual(_run_properties(run), {"nor": "1"})
+                self.assertEqual(_word_tags(run), word)
+                self.assertEqual(_tags(run)[-1], "t")
+                if word:
+                    self.assertEqual(_tags(run)[:2], ["rPr", "rPr"])
+
+    def test_text_sans_and_monospace_use_the_math_alphabet(self):
+        for latex, script in ((r"\textsf{sans}", "sans-serif"),
+                              (r"\texttt{x y}", "monospace")):
+            with self.subTest(latex=latex):
+                run = _runs(latex_to_omml(latex))[0]
+                self.assertEqual(_run_properties(run),
+                                 {"scr": script, "sty": "p"})
+        self.assertEqual(_texts(latex_to_omml(r"\texttt{x y}")), ["x y"])
+
+    def test_dollar_math_inside_text_is_math_again(self):
+        element = latex_to_omml(r"\text{if $x > 0$ then}")
+        runs = _runs(element)
+        self.assertEqual(_texts(element), ["if ", "x", ">", "0", " then"])
+        self.assertEqual(_run_properties(runs[0]), {"nor": "1"})
+        self.assertEqual(_run_properties(runs[1]), {"sty": "i"})
+
+    def test_braces_inside_text_group_rather_than_print(self):
+        self.assertEqual(_texts(latex_to_omml(r"\text{a{b}c}")), ["abc"])
+
+    def test_no_new_style_combines_nor_with_sty(self):
+        formulas = [
+            r"\mathbb{R}", r"\mathcal{L}", r"\textbf{x}", r"\textit{x}",
+            r"\texttt{x}", r"\textsf{x}", r"\mathrm{x}", r"{\rm x}",
+            r"\boldsymbol{\mathcal{A}}", r"\mathbf{\textbf{x}}",
+            r"\varGamma",
+        ]
+        for latex in formulas:
+            with self.subTest(latex=latex):
+                for properties in latex_to_omml(latex).iter(qn("m:rPr")):
+                    present = _tags(properties)
+                    self.assertFalse("nor" in present and "sty" in present)
+
+
+class OverUnderTests(unittest.TestCase):
+    r"""``\overset``, ``\underset``, braces, over/under arrows and the
+    extensible arrows."""
+
+    def test_overset_and_stackrel_are_upper_limits(self):
+        for latex in (r"\overset{!}{=}", r"\stackrel{!}{=}"):
+            with self.subTest(latex=latex):
+                limit = latex_to_omml(latex).find("m:limUpp", MATH_NS)
+                self.assertEqual(_tags(limit), ["e", "lim"])
+                self.assertEqual(_texts(limit.find("m:e", MATH_NS)), ["="])
+                self.assertEqual(_texts(limit.find("m:lim", MATH_NS)), ["!"])
+
+    def test_underset_is_a_lower_limit(self):
+        limit = latex_to_omml(
+            r"\underset{x}{\operatorname{argmin}}").find("m:limLow", MATH_NS)
+        self.assertEqual(_texts(limit.find("m:e", MATH_NS)), ["argmin"])
+        self.assertEqual(_texts(limit.find("m:lim", MATH_NS)), ["x"])
+
+    def test_braces_are_group_characters(self):
+        shapes = {
+            r"\overbrace{a+b}": ("⏞", "top", "bot"),
+            r"\underbrace{a+b}": ("⏟", "bot", "top"),
+            r"\overparen{a}": ("⏜", "top", "bot"),
+            r"\underbracket{a}": ("⎵", "bot", "top"),
+        }
+        for latex, (character, position, vertical) in shapes.items():
+            with self.subTest(latex=latex):
+                group = latex_to_omml(latex).find("m:groupChr", MATH_NS)
+                properties = group.find("m:groupChrPr", MATH_NS)
+                self.assertEqual(_tags(properties), ["chr", "pos", "vertJc"])
+                self.assertEqual(_val(properties, "m:chr"), character)
+                self.assertEqual(_val(properties, "m:pos"), position)
+                self.assertEqual(_val(properties, "m:vertJc"), vertical)
+
+    def test_brace_annotations_become_limits_around_the_brace(self):
+        r"""``\underbrace{a+b}_{n}`` writes n under the brace -- Word's own
+        "underbrace with text" is a groupChr inside a limLow."""
+        lower = latex_to_omml(r"\underbrace{a+b}_{n}").find("m:limLow", MATH_NS)
+        self.assertEqual(_tags(lower.find("m:e", MATH_NS)), ["groupChr"])
+        self.assertEqual(_texts(lower.find("m:lim", MATH_NS)), ["n"])
+        upper = latex_to_omml(r"\overbrace{a+b}^{n}").find("m:limUpp", MATH_NS)
+        self.assertEqual(_tags(upper.find("m:e", MATH_NS)), ["groupChr"])
+        self.assertEqual(_texts(upper.find("m:lim", MATH_NS)), ["n"])
+
+    def test_over_and_under_arrows_stretch_over_their_argument(self):
+        for latex, character, position in (
+            (r"\overrightarrow{AB}", "→", "top"),
+            (r"\overleftarrow{AB}", "←", "top"),
+            (r"\overleftrightarrow{AB}", "↔", "top"),
+            (r"\underrightarrow{AB}", "→", "bot"),
+        ):
+            with self.subTest(latex=latex):
+                group = latex_to_omml(latex).find("m:groupChr", MATH_NS)
+                self.assertEqual(_val(group, "m:groupChrPr/m:chr"), character)
+                self.assertEqual(_val(group, "m:groupChrPr/m:pos"), position)
+                self.assertEqual(_texts(group.find("m:e", MATH_NS)), ["A", "B"])
+
+    def test_an_arrow_takes_ordinary_scripts_not_limits(self):
+        element = latex_to_omml(r"\overrightarrow{AB}^2")
+        self.assertEqual(_tags(element), ["sSup"])
+
+    def test_extensible_arrow_with_text_above(self):
+        group = latex_to_omml(r"\xrightarrow{f}").find("m:groupChr", MATH_NS)
+        self.assertEqual(_val(group, "m:groupChrPr/m:chr"), "→")
+        self.assertEqual(_val(group, "m:groupChrPr/m:pos"), "bot")
+        self.assertEqual(_val(group, "m:groupChrPr/m:vertJc"), "bot")
+        self.assertEqual(_texts(group.find("m:e", MATH_NS)), ["f"])
+
+    def test_extensible_arrow_with_text_above_and_below(self):
+        lower = latex_to_omml(r"\xleftarrow[g]{f}").find("m:limLow", MATH_NS)
+        self.assertEqual(
+            _val(lower, "m:e/m:groupChr/m:groupChrPr/m:chr"), "←")
+        self.assertEqual(_texts(lower.find("m:e", MATH_NS)), ["f"])
+        self.assertEqual(_texts(lower.find("m:lim", MATH_NS)), ["g"])
+
+    def test_extensible_arrow_with_text_below_only(self):
+        group = latex_to_omml(r"\xrightarrow[g]{}").find("m:groupChr", MATH_NS)
+        self.assertEqual(_val(group, "m:groupChrPr/m:pos"), "top")
+        self.assertEqual(_texts(group.find("m:e", MATH_NS)), ["g"])
+        self.assertEqual(_texts(latex_to_omml(r"\xrightarrow{}")), ["→"])
+
+
+class BoxAndDecorationTests(unittest.TestCase):
+    r"""``\boxed``, ``\cancel``, the phantoms, ``\hspace`` and colour."""
+
+    def test_boxed_is_a_plain_border_box(self):
+        box = latex_to_omml(r"\boxed{E = mc^2}").find("m:borderBox", MATH_NS)
+        self.assertEqual(_tags(box), ["e"])
+        framed = latex_to_omml(r"\fbox{two words}").find("m:borderBox", MATH_NS)
+        self.assertEqual(_texts(framed), ["two words"])
+        self.assertEqual(_run_properties(_runs(framed)[0]), {"nor": "1"})
+
+    def test_cancels_hide_the_frame_and_strike_diagonally(self):
+        strikes = {
+            r"\cancel{x}": ["strikeBLTR"], r"\bcancel{x}": ["strikeTLBR"],
+            r"\xcancel{x}": ["strikeBLTR", "strikeTLBR"],
+        }
+        for latex, expected in strikes.items():
+            with self.subTest(latex=latex):
+                properties = latex_to_omml(latex).find(
+                    "m:borderBox/m:borderBoxPr", MATH_NS)
+                # CT_BorderBoxPr's sequence order, hides first.
+                self.assertEqual(
+                    _tags(properties),
+                    ["hideTop", "hideBot", "hideLeft", "hideRight", *expected])
+
+    def test_phantoms_hide_and_zero_the_right_dimensions(self):
+        shapes = {
+            r"\phantom{x}": {"show": "0"},
+            r"\hphantom{x}": {"show": "0", "zeroAsc": "1", "zeroDesc": "1"},
+            r"\vphantom{x}": {"show": "0", "zeroWid": "1"},
+            r"\smash{x}": {"zeroAsc": "1", "zeroDesc": "1"},
+            r"\smash[b]{x}": {"zeroDesc": "1"},
+        }
+        for latex, expected in shapes.items():
+            with self.subTest(latex=latex):
+                properties = latex_to_omml(latex).find(
+                    "m:phant/m:phantPr", MATH_NS)
+                self.assertEqual(
+                    {child.tag.split("}")[-1]: child.get(qn("m:val"))
+                     for child in properties}, expected)
+                order = ["show", "zeroWid", "zeroAsc", "zeroDesc"]
+                tags = _tags(properties)
+                self.assertEqual(tags, sorted(tags, key=order.index))
+        self.assertEqual(
+            _texts(latex_to_omml(r"\phantom{abc}").find(
+                "m:phant/m:e", MATH_NS)), ["a", "b", "c"])
+
+    def test_hspace_accepts_any_length_and_drops_negative_space(self):
+        for latex in (r"a\hspace{1cm}b", r"a\hspace*{2em}b",
+                      r"a\hspace{10pt}b", r"a\hspace{0.5in}b",
+                      r"a\mkern18mu b", r"a\kern 3pt b", r"a\mspace{4mu}b"):
+            with self.subTest(latex=latex):
+                texts = _texts(latex_to_omml(latex))
+                self.assertEqual((texts[0], texts[-1]), ("a", "b"))
+                self.assertEqual(len(texts), 3)
+                self.assertTrue(texts[1].strip() == "" and texts[1])
+        self.assertEqual(_texts(latex_to_omml(r"a\hspace{-1em}b")), ["a", "b"])
+        self.assertEqual(_texts(latex_to_omml(r"a\mkern-3mu b")), ["a", "b"])
+        with self.assertRaises(UnsupportedLatexError) as caught:
+            latex_to_omml(r"a\hspace{\fill}b")
+        self.assertIn("hspace", str(caught.exception))
+
+    def test_color_switch_lasts_to_the_end_of_its_group(self):
+        element = latex_to_omml(r"{\color{red} x + y} + z")
+        colors = [run.find("w:rPr/w:color", {"w": _nsmap["w"]})
+                  for run in _runs(element)]
+        self.assertEqual(
+            [None if c is None else c.get(qn("w:val")) for c in colors],
+            ["FF0000", "FF0000", "FF0000", None, None])
+
+    def test_color_with_a_braced_argument_and_textcolor(self):
+        for latex in (r"\color{blue}{x}", r"\textcolor{blue}{x}"):
+            with self.subTest(latex=latex):
+                run = _runs(latex_to_omml(latex))[0]
+                self.assertEqual(
+                    run.find(qn("w:rPr")).find(qn("w:color")).get(qn("w:val")),
+                    "0000FF")
+                self.assertEqual(_tags(run), ["rPr", "rPr", "t"])
+        plain = _runs(latex_to_omml(r"\textcolor{blue}{x} + y"))[-1]
+        self.assertEqual(_word_tags(plain), [])
+
+    def test_color_specifications(self):
+        cases = {
+            r"\color[HTML]{ff8800}{x}": "FF8800",
+            r"\color{#1E90FF}{x}": "1E90FF",
+            r"\color{#f80}{x}": "FF8800",
+            r"\color[rgb]{1,0.5,0}{x}": "FF8000",
+            r"\color[RGB]{255,128,0}{x}": "FF8000",
+            r"\color[gray]{0.5}{x}": "808080",
+            r"\color{grey}{x}": "808080",
+            r"\color{green}{x}": "008000",
+        }
+        for latex, value in cases.items():
+            with self.subTest(latex=latex):
+                color = _runs(latex_to_omml(latex))[0].find(
+                    qn("w:rPr")).find(qn("w:color"))
+                self.assertEqual(color.get(qn("w:val")), value)
+
+    def test_unknown_colour_is_refused(self):
+        for latex in (r"\color{notacolor}{x}", r"\color[cmyk]{0,1,1,0}{x}",
+                      r"\textcolor[HTML]{GG0000}{x}"):
+            with self.subTest(latex=latex):
+                with self.assertRaises(UnsupportedLatexError):
+                    latex_to_omml(latex)
+
+    def test_color_reaches_structure_glyphs_through_ctrlpr(self):
+        r"""A fraction bar or radical sign is not a run: its colour lives
+        in the ``<m:ctrlPr>`` that closes the structure's properties."""
+        fraction = latex_to_omml(r"\color{red}{\frac{a}{b}}").find("m:f", MATH_NS)
+        properties = fraction.find("m:fPr", MATH_NS)
+        self.assertEqual(_tags(fraction)[0], "fPr")
+        self.assertEqual(_tags(properties)[-1], "ctrlPr")
+        self.assertEqual(
+            properties.find("m:ctrlPr", MATH_NS).find(qn("w:rPr"))
+            .find(qn("w:color")).get(qn("w:val")), "FF0000")
+        nary = latex_to_omml(r"\color{red} \sum_i a_i").find("m:nary", MATH_NS)
+        self.assertEqual(_tags(nary.find("m:naryPr", MATH_NS))[-1], "ctrlPr")
+
+    def test_inner_colour_wins_over_outer(self):
+        element = latex_to_omml(r"\color{red}{a + \textcolor{blue}{b}}")
+        values = [run.find(qn("w:rPr")).find(qn("w:color")).get(qn("w:val"))
+                  for run in _runs(element)]
+        self.assertEqual(values, ["FF0000", "FF0000", "0000FF"])
+
+    def test_colour_ends_at_an_alignment_cell(self):
+        r"""amsmath makes each ``&`` cell a group, so a colour set before
+        ``&`` does not leak into the next cell."""
+        line = latex_to_omml(
+            r"\begin{aligned} \color{red} a &= b \\ c &= d \end{aligned}"
+        ).findall("m:eqArr/m:e", MATH_NS)[0]
+        colored = [run.find(qn("w:rPr")) is not None for run in _runs(line)]
+        self.assertEqual(colored, [True, False, False])
+
+
+class NumberingTests(unittest.TestCase):
+    r"""``\tag``, ``\label``, ``\nonumber``, ``\notag`` and
+    `split_equation_tag`."""
+
+    def test_label_nonumber_and_notag_produce_nothing(self):
+        for latex in (r"E = mc^2 \label{eq:einstein}", r"E = mc^2 \nonumber",
+                      r"E = mc^2 \notag", r"\label{a:b_c} E = mc^2"):
+            with self.subTest(latex=latex):
+                self.assertEqual(xml_of(latex), xml_of(r"E = mc^2"))
+
+    def test_tag_is_an_upright_number_set_apart_at_the_end(self):
+        element = latex_to_omml(r"E = mc^2 \tag{1}")
+        runs = list(element)[-2:]
+        self.assertEqual(_texts(runs[0]), [" "])
+        self.assertEqual(_texts(runs[1]), ["(1)"])
+        self.assertEqual(_run_properties(runs[1]), {"nor": "1"})
+        starred = list(latex_to_omml(r"E = mc^2 \tag*{A}"))[-1]
+        self.assertEqual(_texts(starred), ["A"])
+
+    def test_tag_moves_to_the_end_of_its_line_wherever_it_is_written(self):
+        self.assertEqual(xml_of(r"\tag{2} a = b"), xml_of(r"a = b \tag{2}"))
+        element = latex_to_omml(r"\sum_i a_i \tag{3}")
+        self.assertEqual(_tags(element), ["nary", "r", "r"])
+        self.assertEqual(_texts(element.find("m:nary/m:e", MATH_NS)), ["a", "i"])
+
+    def test_each_line_keeps_its_own_tag(self):
+        lines = latex_to_omml(
+            r"\begin{align} a &= b \tag{1} \\ c &= d \tag{2} \end{align}"
+        ).findall("m:eqArr/m:e", MATH_NS)
+        self.assertEqual([_texts(line)[-1] for line in lines], ["(1)", "(2)"])
+        for line in lines:
+            self.assertEqual(_aligned_runs(line), ["="])
+
+    def test_two_tags_on_one_line_are_refused(self):
+        with self.assertRaises(UnsupportedLatexError) as caught:
+            latex_to_omml(r"a \tag{1} \tag{2}")
+        self.assertIn("tag", str(caught.exception))
+
+    def test_split_equation_tag_returns_the_tag_text(self):
+        self.assertEqual(split_equation_tag(r"E = mc^2 \tag{3}"),
+                         ("E = mc^2", "3"))
+        self.assertEqual(split_equation_tag(r"E = mc^2 \tag*{A}"),
+                         ("E = mc^2", "A"))
+        self.assertEqual(split_equation_tag(r"\tag {1.2a} x"), ("x", "1.2a"))
+        self.assertEqual(split_equation_tag(r"a \tag{\text{a}{b}}"),
+                         ("a", r"\text{a}{b}"))
+
+    def test_split_equation_tag_drops_labels_and_no_number_markers(self):
+        self.assertEqual(
+            split_equation_tag(r"a = b \label{eq:x} \nonumber"), ("a = b", None))
+        self.assertEqual(split_equation_tag(r"a \notag"), ("a", None))
+        self.assertEqual(
+            split_equation_tag(r"a = b \label{eq:x} \tag{7}"), ("a = b", "7"))
+        self.assertEqual(split_equation_tag("x"), ("x", None))
+
+    def test_split_equation_tag_leaves_per_line_tags_in_place(self):
+        source = r"a \tag{1} \\ b \tag{2}"
+        self.assertEqual(split_equation_tag(source), (source, None))
+        remaining, tag = split_equation_tag(r"a \tag{1} \label{x} \\ b \tag{2}")
+        self.assertEqual((remaining, tag), (r"a \tag{1}  \\ b \tag{2}", None))
+
+    def test_split_equation_tag_never_raises_and_respects_escapes(self):
+        for source in (r"x \tag 1", r"x \tag{1", r"a\tagx{1}",
+                       "a \\\\tag{1}", "\\", r"\tag"):
+            with self.subTest(source=source):
+                self.assertEqual(split_equation_tag(source),
+                                 (source.strip(), None))
+
+    def test_split_result_converts(self):
+        remaining, tag = split_equation_tag(
+            r"\begin{aligned} a &= b \\ c &= d \end{aligned} \label{e} \tag{4}")
+        self.assertEqual(tag, "4")
+        self.assertEqual(len(latex_to_omml(remaining).findall(
+            "m:eqArr/m:e", MATH_NS)), 2)
+
+
+class StyleSwitchAndDelimiterTests(unittest.TestCase):
+    r"""``\displaystyle`` and friends, ``\limits``/``\nolimits``, ``\big``
+    sizes and ``\middle``."""
+
+    def test_style_and_size_switches_are_no_ops(self):
+        for switch in ("displaystyle", "textstyle", "scriptstyle",
+                       "scriptscriptstyle", "small", "Large"):
+            with self.subTest(switch=switch):
+                self.assertEqual(
+                    xml_of("\\%s \\frac{a}{b}" % switch), xml_of(r"\frac{a}{b}"))
+        with self.assertRaises(UnsupportedLatexError):
+            latex_to_omml(r"x^\displaystyle")
+
+    def test_limits_and_nolimits_set_the_nary_limit_location(self):
+        cases = {
+            r"\sum\limits_{i=1}^n a_i": "undOvr",
+            r"\sum\nolimits_{i=1}^n a_i": "subSup",
+            r"\int\limits_0^1 f": "undOvr",
+            r"\int\nolimits_0^1 f": "subSup",
+            r"\sum\nolimits\limits_i a": "undOvr",
+        }
+        for latex, location in cases.items():
+            with self.subTest(latex=latex):
+                nary = latex_to_omml(latex).find("m:nary", MATH_NS)
+                self.assertEqual(_val(nary, "m:naryPr/m:limLoc"), location)
+                self.assertEqual(_tags(nary.find("m:naryPr", MATH_NS))[:2],
+                                 ["chr", "limLoc"])
+
+    def test_limits_on_function_names(self):
+        self.assertEqual(_tags(latex_to_omml(r"\max_{x} f")), ["limLow", "r"])
+        self.assertEqual(_tags(latex_to_omml(r"\lim\nolimits_{x} f")),
+                         ["sSub", "r"])
+        self.assertEqual(_tags(latex_to_omml(r"\sin\limits_{x} f")),
+                         ["limLow", "r"])
+        with self.assertRaises(UnsupportedLatexError) as caught:
+            latex_to_omml(r"x\limits_0")
+        self.assertIn("limits", str(caught.exception))
+
+    def test_big_delimiters_are_plain_characters(self):
+        element = latex_to_omml(r"\bigl( x \bigr) \Bigl[ y \Bigr] \bigg\{ z \bigg\}")
+        self.assertIsNone(element.find(".//m:d", MATH_NS))
+        self.assertEqual(_texts(element),
+                         ["(", "x", ")", "[", "y", "]", "{", "z", "}"])
+        self.assertEqual(_texts(latex_to_omml(r"\Big\langle x \Big\rangle")),
+                         ["⟨", "x", "⟩"])
+        scripted = latex_to_omml(r"\frac{dy}{dx}\bigg|_{x=0}")
+        self.assertEqual(_texts(scripted.find("m:sSub/m:e", MATH_NS)), ["|"])
+
+    def test_middle_becomes_a_separator(self):
+        delimiter = latex_to_omml(r"\left( a \middle| b \right)").find("m:d", MATH_NS)
+        self.assertEqual(_tags(delimiter.find("m:dPr", MATH_NS)),
+                         ["begChr", "sepChr", "endChr"])
+        self.assertEqual(_val(delimiter, "m:dPr/m:sepChr"), "|")
+        self.assertEqual([_texts(e) for e in delimiter.findall("m:e", MATH_NS)],
+                         [["a"], ["b"]])
+        braces = latex_to_omml(
+            r"\left\{ x \middle\| y \middle\| z \right\}").find("m:d", MATH_NS)
+        self.assertEqual(_val(braces, "m:dPr/m:sepChr"), "‖")
+        self.assertEqual(len(braces.findall("m:e", MATH_NS)), 3)
+
+    def test_mixed_or_stray_middle_is_refused(self):
+        for latex in (r"\left( a \middle| b \middle\| c \right)",
+                      r"\left( a \middle. b \right)", r"\middle| x"):
+            with self.subTest(latex=latex):
+                with self.assertRaises(UnsupportedLatexError) as caught:
+                    latex_to_omml(latex)
+                self.assertIn("middle", str(caught.exception))
+
+
+class CommandTests(unittest.TestCase):
+    r"""``\cfrac``, ``\dbinom``, ``\pmod``, ``\operatorname*``, ``\not``
+    and the other commands added alongside them."""
+
+    def test_cfrac_is_a_fraction(self):
+        outer = latex_to_omml(r"\cfrac{1}{1 + \cfrac{1}{x}}").find("m:f", MATH_NS)
+        self.assertIsNotNone(outer.find("m:den/m:f", MATH_NS))
+        self.assertEqual(xml_of(r"\cfrac[l]{a}{b}"), xml_of(r"\frac{a}{b}"))
+
+    def test_brace_and_brack_infixes_fence_a_barless_stack(self):
+        for latex, pair in ((r"{n \brace k}", ("{", "}")),
+                            (r"{n \brack k}", ("[", "]"))):
+            with self.subTest(latex=latex):
+                element = latex_to_omml(latex)
+                self.assertEqual((_val(element, "m:d/m:dPr/m:begChr"),
+                                  _val(element, "m:d/m:dPr/m:endChr")), pair)
+                self.assertEqual(
+                    _val(element, "m:d/m:e/m:f/m:fPr/m:type"), "noBar")
+
+    def test_dbinom_and_tbinom_match_binom(self):
+        for name in ("dbinom", "tbinom"):
+            with self.subTest(command=name):
+                self.assertEqual(xml_of("\\%s{n}{k}" % name),
+                                 xml_of(r"\binom{n}{k}"))
+
+    def test_pmod_puts_an_upright_mod_in_parentheses(self):
+        element = latex_to_omml(r"a \equiv b \pmod{n}")
+        delimiter = element.find("m:d", MATH_NS)
+        self.assertEqual(_val(delimiter, "m:dPr/m:begChr"), "(")
+        runs = _runs(delimiter)
+        self.assertEqual([_texts(run) for run in runs], [["mod"], [" "], ["n"]])
+        self.assertEqual(_run_properties(runs[0]), {"nor": "1"})
+
+    def test_bmod_is_an_upright_operator(self):
+        element = latex_to_omml(r"a \bmod b")
+        self.assertEqual(_texts(element), ["a", " ", "mod", " ", "b"])
+        self.assertEqual(_run_properties(_runs(element)[2]), {"nor": "1"})
+
+    def test_pr_is_an_upright_function_name(self):
+        run = _runs(latex_to_omml(r"\Pr(A)"))[0]
+        self.assertEqual(_texts(run), ["Pr"])
+        self.assertEqual(_run_properties(run), {"nor": "1"})
+
+    def test_operatorname_star_takes_limits(self):
+        element = latex_to_omml(r"\operatorname*{argmax}_{x \in X} f(x)")
+        limit = element.find("m:limLow", MATH_NS)
+        self.assertEqual(_texts(limit.find("m:e", MATH_NS)), ["argmax"])
+        self.assertEqual(_texts(limit.find("m:lim", MATH_NS)), ["x", "∈", "X"])
+        plain = latex_to_omml(r"\operatorname{argmax}_x f")
+        self.assertEqual(_tags(plain), ["sSub", "r"])
+
+    def test_operatorname_star_without_braces_names_the_command(self):
+        with self.assertRaises(UnsupportedLatexError) as caught:
+            latex_to_omml(r"\operatorname* x")
+        self.assertIn("\\operatorname*", str(caught.exception))
+        self.assertIn("{", str(caught.exception))
+
+    def test_mathop_takes_limits(self):
+        limit = latex_to_omml(
+            r"\mathop{\mathrm{arg\,min}}_{x} f").find("m:limLow", MATH_NS)
+        self.assertEqual(_texts(limit.find("m:lim", MATH_NS)), ["x"])
+
+    def test_not_composes_the_negated_relation(self):
+        expected = {
+            r"\not=": "≠", r"\not\in": "∉", r"\not\subset": "⊄",
+            r"\not\subseteq": "⊈", r"\not\equiv": "≢", r"\not\sim": "≁",
+            r"\not<": "≮", r"\not>": "≯", r"\not\le": "≰", r"\not\leq": "≰",
+            r"\not\ge": "≱", r"\not\approx": "≉", r"\not\cong": "≇",
+            r"\not\parallel": "∦", r"\not\exists": "∄", r"\not\ni": "∌",
+            r"\not \mid": "∤",
+        }
+        for latex, character in expected.items():
+            with self.subTest(latex=latex):
+                self.assertEqual(_texts(latex_to_omml(latex)), [character])
+        # No precomposed form: the combining long solidus overlay.
+        self.assertEqual(_texts(latex_to_omml(r"\not\propto")), ["∝̸"])
+
+    def test_not_refuses_anything_but_a_single_symbol(self):
+        for latex in (r"\not\frac{a}{b}", r"\not", r"\not}"):
+            with self.subTest(latex=latex):
+                with self.assertRaises(UnsupportedLatexError) as caught:
+                    latex_to_omml(latex if latex != r"\not}" else r"{\not}")
+                self.assertIn("not", str(caught.exception))
+
+    def test_double_bars_outside_and_inside_left_right(self):
+        self.assertEqual(_texts(latex_to_omml(r"\|x\|")), ["‖", "x", "‖"])
+        self.assertEqual(_texts(latex_to_omml(r"\lVert x \rVert")),
+                         ["‖", "x", "‖"])
+        self.assertEqual(_texts(latex_to_omml(r"\lvert x \rvert")),
+                         ["|", "x", "|"])
+        for latex, pair in ((r"\left\lVert x \right\rVert", ("‖", "‖")),
+                            (r"\left\lvert x \right\rvert", ("|", "|")),
+                            (r"\left< x \right>", ("⟨", "⟩"))):
+            with self.subTest(latex=latex):
+                element = latex_to_omml(latex)
+                self.assertEqual(
+                    (_val(element, "m:d/m:dPr/m:begChr"),
+                     _val(element, "m:d/m:dPr/m:endChr")), pair)
+
+    def test_dirac_notation(self):
+        ket = latex_to_omml(r"\ket{\psi}")
+        self.assertEqual((_val(ket, "m:d/m:dPr/m:begChr"),
+                          _val(ket, "m:d/m:dPr/m:endChr")), ("|", "⟩"))
+        braket = latex_to_omml(r"\braket{\phi | \psi}").find("m:d", MATH_NS)
+        self.assertEqual(_val(braket, "m:dPr/m:sepChr"), "|")
+        self.assertEqual(len(braket.findall("m:e", MATH_NS)), 2)
+
+    def test_prime_and_tie(self):
+        self.assertEqual(_texts(latex_to_omml("f'(x)")),
+                         ["f", "′", "(", "x", ")"])
+        self.assertEqual(_texts(latex_to_omml("a~b")), ["a", " ", "b"])
+
+    def test_sideset_is_refused_with_a_clear_message(self):
+        with self.assertRaises(UnsupportedLatexError) as caught:
+            latex_to_omml(r"\sideset{}{'}\sum_{n} a_n")
+        message = str(caught.exception)
+        self.assertIn("sideset", message)
+        self.assertIn("not supported", message)
+
+    def test_missing_argument_names_the_command(self):
+        with self.assertRaises(UnsupportedLatexError) as caught:
+            latex_to_omml(r"\frac{a}")
+        self.assertIn("\\frac", str(caught.exception))
+        with self.assertRaises(UnsupportedLatexError) as caught:
+            latex_to_omml(r"\text x")
+        self.assertIn("\\text", str(caught.exception))
+
+    def test_deliberate_refusals_still_hold(self):
+        must_raise = [
+            r"\begin{array}{c|c} a & b \end{array}",
+            r"\begin{array}{p{2cm}} a \end{array}",
+            r"\begin{array}{@{}c} a \end{array}",
+            r"\begin{array}{cc} \hline a & b \end{array}",
+            r"\matrix{a & b}", r"\cases{a & b}",
+            r"a \over b \over c", "a & b",
+        ]
+        for latex in must_raise:
+            with self.subTest(latex=latex):
+                with self.assertRaises(UnsupportedLatexError):
+                    latex_to_omml(latex)
+
+
+class SymbolTests(unittest.TestCase):
+    """The added symbols map to the right Unicode code points."""
+
+    EXPECTED = {
+        "top": "⊤", "bot": "⊥", "dagger": "†", "ddagger": "‡", "lnot": "¬",
+        "implies": "⟹", "impliedby": "⟸", "iff": "⟺",
+        "uparrow": "↑", "downarrow": "↓", "updownarrow": "↕",
+        "Uparrow": "⇑", "Downarrow": "⇓", "Updownarrow": "⇕",
+        "nearrow": "↗", "searrow": "↘", "nwarrow": "↖", "swarrow": "↙",
+        "ni": "∋", "mid": "∣", "nmid": "∤",
+        "Longrightarrow": "⟹", "Longleftarrow": "⟸",
+        "Longleftrightarrow": "⟺", "longrightarrow": "⟶",
+        "longleftarrow": "⟵", "longleftrightarrow": "⟷", "longmapsto": "⟼",
+        "hookrightarrow": "↪", "hookleftarrow": "↩",
+        "rightleftharpoons": "⇌", "leftrightharpoons": "⇋",
+        "rightharpoonup": "⇀", "leftharpoonup": "↼",
+        "doteq": "≐", "triangleq": "≜", "coloneqq": "≔", "eqqcolon": "≕",
+        "wp": "℘", "square": "□", "blacksquare": "■", "checkmark": "✓",
+        "bigcirc": "◯", "diamond": "⋄", "Diamond": "◇", "triangle": "△",
+        "triangledown": "▽", "therefore": "∴", "because": "∵",
+        "nexists": "∄", "complement": "∁", "hslash": "ℏ", "imath": "ı",
+        "jmath": "ȷ", "mho": "℧", "leqslant": "⩽", "geqslant": "⩾",
+        "lesssim": "≲", "gtrsim": "≳", "prec": "≺", "succ": "≻",
+        "preceq": "⪯", "succeq": "⪰", "sqsubset": "⊏", "sqsupset": "⊐",
+        "sqsubseteq": "⊑", "sqsupseteq": "⊒", "vdash": "⊢", "dashv": "⊣",
+        "models": "⊨", "asymp": "≍", "bowtie": "⋈", "smile": "⌣",
+        "frown": "⌢", "amalg": "⨿", "wr": "≀", "uplus": "⊎", "sqcup": "⊔",
+        "sqcap": "⊓", "odot": "⊙", "ominus": "⊖", "oslash": "⊘",
+        "circledast": "⊛", "boxplus": "⊞", "boxtimes": "⊠", "lhd": "⊲",
+        "rhd": "⊳", "unlhd": "⊴", "unrhd": "⊵", "nleq": "≰", "ngeq": "≱",
+        "nsubseteq": "⊈", "nsupseteq": "⊉", "ncong": "≇", "nsim": "≁",
+        "varkappa": "ϰ", "varsigma": "ς", "varrho": "ϱ", "varpi": "ϖ",
+        "digamma": "ϝ", "backslash": "\\", "measuredangle": "∡",
+        "sphericalangle": "∢", "degree": "°", "surd": "√", "flat": "♭",
+        "sharp": "♯", "natural": "♮", "clubsuit": "♣", "diamondsuit": "♢",
+        "heartsuit": "♡", "spadesuit": "♠", "lozenge": "◊",
+        "blacklozenge": "⧫", "bigstar": "★", "circledR": "®",
+        "copyright": "©", "pounds": "£", "yen": "¥", "euro": "€",
+        "ldots": "…", "cdots": "⋯", "vdots": "⋮", "ddots": "⋱", "colon": ":",
+        "langle": "⟨", "rangle": "⟩", "lfloor": "⌊", "rceil": "⌉",
+        "lt": "<", "gt": ">", "vee": "∨", "wedge": "∧",
+        # LaTeX's \epsilon and \phi are the lunate and straight forms.
+        "epsilon": "ϵ", "varepsilon": "ε", "phi": "ϕ", "varphi": "φ",
+    }
+
+    def test_every_added_symbol_has_its_code_point(self):
+        for name, character in self.EXPECTED.items():
+            with self.subTest(command=name):
+                self.assertEqual(_SYMBOLS.get(name), character)
+                self.assertEqual(_texts(latex_to_omml("\\" + name)), [character])
+
+    def test_added_big_operators_are_n_ary(self):
+        for name, character, location in (
+            ("bigodot", "⨀", "undOvr"), ("biguplus", "⨄", "undOvr"),
+            ("bigsqcup", "⨆", "undOvr"), ("iiiint", "⨌", "subSup"),
+            ("oiint", "∯", "subSup"),
+        ):
+            with self.subTest(command=name):
+                nary = latex_to_omml("\\%s_i A_i" % name).find("m:nary", MATH_NS)
+                self.assertEqual(_val(nary, "m:naryPr/m:chr"), character)
+                self.assertEqual(_val(nary, "m:naryPr/m:limLoc"), location)
+
+    def test_variant_capitals_are_italic(self):
+        run = _runs(latex_to_omml(r"\varGamma"))[0]
+        self.assertEqual(_texts(run), ["Γ"])
+        self.assertEqual(_run_properties(run), {"sty": "i"})
+
+
+# Common LLM-style formulas: every one must convert without raising.
+SMOKE_FORMULAS = [
+    r"\begin{aligned} a &= b \\ c &= d \end{aligned}",
+    r"\begin{aligned} f(x) &= (x+1)^2 \\ &= x^2 + 2x + 1 \end{aligned}",
+    r"\begin{aligned} \nabla \cdot \mathbf{E} &= \frac{\rho}{\varepsilon_0} \\ \nabla \cdot \mathbf{B} &= 0 \end{aligned}",
+    r"\begin{alignedat}{2} x &= 1 &\quad y &= 2 \end{alignedat}",
+    r"\begin{split} a &= b + c \\ &= d \end{split}",
+    r"\begin{gathered} a = b \\ c = d \end{gathered}",
+    r"\begin{align*} a &= b \\ c &= d \end{align*}",
+    r"\begin{gather} x \\ y \end{gather}",
+    r"\begin{equation} E = mc^2 \end{equation}",
+    r"\begin{smallmatrix} a & b \\ c & d \end{smallmatrix}",
+    r"\begin{pmatrix} 1 & 0 \\ 0 & 1 \end{pmatrix}",
+    r"\begin{bmatrix} a_{11} & a_{12} \\ a_{21} & a_{22} \end{bmatrix}",
+    r"\begin{vmatrix} a & b \\ c & d \end{vmatrix} = ad - bc",
+    r"\begin{cases} x & \text{if } x \ge 0 \\ -x & \text{otherwise} \end{cases}",
+    r"\begin{dcases} \frac{1}{2} & x > 0 \\ 0 & x \le 0 \end{dcases}",
+    r"\begin{rcases} a & b \\ c & d \end{rcases} \implies e",
+    r"\begin{cases*} 1 & if $x$ is odd \\ 0 & otherwise \end{cases*}",
+    r"\left\{ \begin{aligned} x + y &= 3 \\ x - y &= 1 \end{aligned} \right.",
+    r"\mathbb{R}^n", r"x \in \mathbb{Z}_{\ge 0}", r"\mathbb{E}[X] = \mu",
+    r"\mathcal{L}(\theta)", r"\mathcal{O}(n \log n)", r"\mathscr{F}",
+    r"\mathfrak{g}", r"\mathsf{T}", r"\mathtt{x}", r"\mathbbm{1}_{A}",
+    r"\boldsymbol{\mu}", r"\boldsymbol{\Sigma}^{-1}", r"\bm{x}",
+    r"\mathbf{x}^\top \mathbf{A} \mathbf{x}", r"\textbf{Note:}\ x > 0",
+    r"\textit{see } x", r"\texttt{id}", r"\textsf{A}",
+    r"\text{if } x > 0 \text{ and $y$ is odd}",
+    r"\overset{!}{=}", r"\stackrel{\text{def}}{=}",
+    r"\underset{x}{\operatorname{argmin}} f(x)",
+    r"\overbrace{a + b + c}^{3}",
+    r"\underbrace{1 + 2 + \cdots + n}_{n \text{ terms}}",
+    r"\overrightarrow{AB}", r"\overleftarrow{AB}", r"\overleftrightarrow{AB}",
+    r"A \xrightarrow{f} B", r"A \xleftarrow[g]{f} B",
+    r"\boxed{E = mc^2}", r"\cancel{x} + \bcancel{y} + \xcancel{z}",
+    r"a\phantom{bc}d", r"a\hphantom{bc}d", r"a\vphantom{\frac{1}{2}}d",
+    r"a \hspace{1cm} b", r"\color{red}{x} + y", r"{\color{blue} x + y} + z",
+    r"\textcolor{green}{x}", r"\color[HTML]{FF8800}{x}",
+    r"E = mc^2 \label{eq:einstein}", r"E = mc^2 \tag{1}", r"E \tag*{A}",
+    r"a = b \nonumber", r"a = b \notag",
+    r"\displaystyle \sum_{i=1}^n i", r"\textstyle \int_0^1 f",
+    r"\sum\limits_{i=1}^n a_i", r"\int\limits_0^1 f(x)\,dx",
+    r"\sum\nolimits_{i} a_i", r"\bigl( x \bigr)", r"\Bigl[ x \Bigr]",
+    r"\bigg\{ x \bigg\}", r"\left( a \middle| b \right)",
+    r"\cfrac{1}{1 + \cfrac{1}{x}}", r"\dbinom{n}{k}", r"\tbinom{n}{k}",
+    r"a \equiv b \pmod{n}", r"a \bmod b", r"\Pr(A \mid B)",
+    r"\operatorname*{argmax}_{x \in X} f(x)", r"\operatorname{tr}(A)",
+    r"\mathop{\mathrm{arg\,min}}_{x} f(x)", r"a \not= b", r"x \not\in A",
+    r"A \not\subseteq B", r"a \not\equiv b \pmod{p}", r"\|x\|_2",
+    r"\lVert x \rVert", r"\left\lVert x \right\rVert_\infty",
+    r"\lvert x \rvert", r"\top", r"A^\dagger", r"\neg p \lor q",
+    r"p \implies q", r"p \iff q", r"\uparrow \downarrow",
+    r"\mathbb{N} \ni n", r"a \mid b", r"a \nmid b",
+    r"f \colon X \to Y", r"x \mapsto x^2", r"A \Longrightarrow B",
+    r"\hookrightarrow", r"\rightleftharpoons", r"a \doteq b",
+    r"a \triangleq b", r"x \coloneqq 1", r"\wp", r"\square",
+    r"\blacksquare", r"\checkmark", r"\therefore", r"\because",
+    r"\nexists x", r"A^\complement", r"\hslash", r"\imath",
+    r"a \leqslant b", r"a \lesssim b", r"a \prec b", r"A \sqsubseteq B",
+    r"\Gamma \vdash \phi", r"\models", r"A \uplus B", r"A \sqcup B",
+    r"x \odot y", r"\bigodot_i A_i", r"\biguplus_i A_i", r"\bigsqcup_i A_i",
+    r"\heartsuit", r"\pounds 5", r"90^\circ", r"90\degree",
+    r"\int_{-\infty}^{\infty} e^{-x^2}\,dx = \sqrt{\pi}",
+    r"x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}",
+    r"\lim_{n \to \infty} \left(1 + \frac{1}{n}\right)^n = e",
+    r"\sum_{k=0}^{\infty} \frac{x^k}{k!} = e^x",
+    r"P(A \mid B) = \frac{P(B \mid A)\,P(A)}{P(B)}",
+    r"\nabla \times \mathbf{E} = -\frac{\partial \mathbf{B}}{\partial t}",
+    r"\langle u, v \rangle", r"\lfloor x \rfloor + \lceil y \rceil",
+    r"f'(x) + f''(x)", r"\left.\frac{df}{dx}\right|_{x=0}",
+    r"\frac{dy}{dx}\bigg|_{x=0}",
+    r"\mathrm{Attention}(Q,K,V) = \mathrm{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V",
+    r"\mathcal{N}(\mu, \sigma^2)", r"D_{\mathrm{KL}}(P \| Q)",
+    r"\theta \leftarrow \theta - \eta \nabla_\theta \mathcal{L}",
+    r"\mathbb{E}_{x \sim p}[f(x)]",
+    r"\Delta x \, \Delta p \geq \frac{\hbar}{2}",
+    r"i\hbar\frac{\partial}{\partial t}\Psi = \hat{H}\Psi",
+    r"\ket{\psi} = \alpha\ket{0} + \beta\ket{1}", r"\braket{\phi | \psi}",
+    r"\max_{x \in S} f(x)", r"\arg\max_\theta L(\theta)",
+    r"\det(A - \lambda I) = 0", r"\mathrm{H_2O}", r"\mathrm{m/s^2}",
+    r"{\rm d}x", r"\vec{F} = m\vec{a}", r"\mathring{A}",
+    r"{}^{14}_{6}\mathrm{C}", r"\sum_{\substack{i=1 \\ i \neq j}}^{n} a_i",
+    r"a \lt b", r"\oint_C \mathbf{F} \cdot d\mathbf{r}",
+    r"\{x \in \mathbb{R} : x > 0\}", r"1{,}000", r"a~b",
+    r"\begin{cases} 1 & x > 0 \\[4pt] 0 & \text{otherwise} \end{cases}",
+    r"\Big( \frac{a}{b} \Big)^2", r"\color{red} \sum_i a_i",
+    r"\begin{equation*} a \tag{2.1} \end{equation*}",
+    r"\frac{\partial^2 u}{\partial t^2} = c^2 \nabla^2 u",
+    r"\mathbf{W}^{[l]}", r"x \in [0, 1)",
+    r"\binom{n}{k} p^k (1-p)^{n-k}", r"e^{i\pi} + 1 = 0",
+    r"\forall \epsilon > 0, \exists \delta > 0",
+    r"\sigma(z) = \frac{1}{1 + e^{-z}}",
+    r"\hat{\beta} = (X^\top X)^{-1} X^\top y",
+    r"\text{softmax}(z)_i = \frac{e^{z_i}}{\sum_{j} e^{z_j}}",
+    r"\smash{x}", r"a \mkern-3mu b", r"\overparen{AB}",
+    r"\begin{array}{lcr} a & b & c \end{array}",
+]
+
+
+class SmokeTests(unittest.TestCase):
+    def test_common_formulas_convert_without_raising(self):
+        self.assertGreaterEqual(len(SMOKE_FORMULAS), 150)
+        for latex in SMOKE_FORMULAS:
+            with self.subTest(latex=latex):
+                element = latex_to_omml(latex)
+                self.assertEqual(element.tag, qn("m:oMath"))
+
+    def test_new_constructs_survive_a_docx_save_and_reopen(self):
+        document = Document()
+        formulas = [
+            r"\begin{aligned} a &= b \\ c &= d \end{aligned}",
+            r"\mathbb{R}",
+            r"\textbf{v}",
+            r"\underbrace{a+b}_{n}",
+            r"\color{red}{\frac{a}{b}}",
+            r"\phantom{x}",
+        ]
+        for offset, formula in enumerate(formulas):
+            document.element.body.insert(offset, latex_to_omml(formula))
+        buffer = io.BytesIO()
+        document.save(buffer)
+        buffer.seek(0)
+        body = Document(buffer).element.body
+        lines = body.findall("m:oMath/m:eqArr/m:e", MATH_NS)
+        self.assertEqual([_aligned_runs(line) for line in lines], [["="], ["="]])
+        self.assertEqual(
+            _val(body, "m:oMath/m:r/m:rPr/m:scr"), "double-struck")
+        self.assertIsNotNone(body.find(".//" + qn("w:b")))
+        self.assertEqual(
+            _val(body, "m:oMath/m:limLow/m:e/m:groupChr/m:groupChrPr/m:chr"), "⏟")
+        self.assertIsNotNone(
+            body.find("m:oMath/m:f/m:fPr/m:ctrlPr", MATH_NS))
+        self.assertEqual(_val(body, "m:oMath/m:phant/m:phantPr/m:show"), "0")
 
 
 if __name__ == "__main__":
