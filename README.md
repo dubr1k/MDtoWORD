@@ -10,6 +10,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 ![GUI](https://img.shields.io/badge/GUI-PyQt6-orange?style=for-the-badge)
 ![LaTeX](https://img.shields.io/badge/LaTeX-native%20OMML-red?style=for-the-badge)
+[![Release](https://img.shields.io/github/v/release/dubr1k/MDtoWORD?style=for-the-badge)](https://github.com/dubr1k/MDtoWORD/releases/latest)
 
 **A desktop app that turns GitHub Flavored Markdown into a clean Word document — formulas included, and still editable once they get there**
 
@@ -25,9 +26,30 @@ MDtoWORD takes your `.md` files — one, a dozen, or a whole folder — and drop
 
 It also works the other way round: a `.docx` turns back into Markdown with headings, lists, tables, links, images, footnotes and equations in place — see [Word → Markdown](#-word--markdown).
 
+**New in 1.2:** real list numbering, native footnotes, GOST 7.32 preset and templates, 146 of 147 common LaTeX constructs as equations, a rewritten Word → Markdown direction and new MCP tools — see the [release notes](docs/releases/RELEASE_NOTES_1.2.md).
+
 ---
 
 ## 🚀 Quick Start
+
+### Ready-made builds
+
+Download the archive for your system from the [latest release](https://github.com/dubr1k/MDtoWORD/releases/latest):
+
+| System | Archive |
+|---|---|
+| macOS, Apple Silicon | `MDtoWORD-macOS-arm64.zip` — unpack and move `MDtoWORD.app` to `/Applications` |
+| Windows x64 | `MDtoWORD-Windows-x64.zip` — unpack and run `MDtoWORD.exe` |
+
+Each archive comes with a `.sha256` file to check it against (`shasum -a 256 -c MDtoWORD-macOS-arm64.zip.sha256`, or `Get-FileHash` on Windows).
+
+The macOS app is signed ad hoc, not notarized, so on first launch macOS says it cannot verify the developer. Open it once with right-click → **Open**, or clear the download quarantine flag:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/MDtoWORD.app
+```
+
+### From source
 
 ```bash
 # 1. Clone the repository
@@ -138,7 +160,7 @@ The markup goes through a CommonMark + GitHub Flavored Markdown parser with a fe
 
 ## 🧮 LaTeX formulas
 
-The headline feature of this release. A formula can be written four ways:
+A formula can be written four ways:
 
 ```markdown
 Inline: $E = mc^2$
@@ -309,6 +331,9 @@ MDtoWORD/
 │   ├── workflow.py               # Source discovery and output path allocation
 │   └── theme.py                  # Dark and light themes, persisted choice
 ├── 📁 tests/                     # Test suite (unittest)
+├── 📁 .github/workflows/
+│   ├── build-macos.yml           # CI: macOS arm64 archive, attached to the release
+│   └── build-windows.yml         # CI: Windows x64 archive, attached to the release
 ├── 📁 scripts/
 │   ├── build_macos.sh            # Builds MDtoWORD.app (Apple Silicon)
 │   ├── build_windows.ps1         # Builds the Windows bundle and archive
@@ -492,8 +517,15 @@ rather than a system or anaconda Python.
 
 Standalone bundles:
 
-- `./scripts/build_macos.sh` — builds `dist/MDtoWORD.app` for Apple Silicon: creates a dedicated virtualenv, installs the dependencies, runs PyInstaller against `MDtoWORD.spec` and ad-hoc signs the result;
+- `./scripts/build_macos.sh` — builds `dist/MDtoWORD.app` for Apple Silicon: creates a dedicated virtualenv, installs the dependencies, runs PyInstaller against `MDtoWORD.spec`, ad-hoc signs the result and packs `dist/MDtoWORD-macOS-arm64.zip` with its SHA-256;
 - `scripts/build_windows.ps1` — builds the Windows bundle, packs it into `dist/MDtoWORD-Windows-x64.zip` and computes the SHA-256.
+
+Release builds come from GitHub Actions, not from a developer machine. Two workflows — `build-macos.yml` (Apple Silicon runner) and `build-windows.yml` — run the scripts above, check the archive (the macOS one also verifies the signature, that the bundle version matches `pyproject.toml`, and that the app starts) and upload it as a run artifact. They start by hand from the Actions tab or on any tag push; on a tag they also attach both archives to the GitHub release with that name.
+
+Releasing a version:
+
+1. Bump the version in `pyproject.toml`, `MDtoWORD.spec` (`CFBundleShortVersionString`, `CFBundleVersion`) and `packaging/windows_version_info.txt`; add `docs/releases/RELEASE_NOTES_<version>.md`.
+2. Tag the commit and push the tag, then create the release for it: `gh release create <tag> --title "MDtoWORD <tag>" --notes-file docs/releases/RELEASE_NOTES_<version>.md`. The workflows attach the archives a few minutes later.
 
 ---
 
@@ -546,6 +578,7 @@ Text boxes, comments and merged table cells have no Markdown counterpart; the re
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 ![GUI](https://img.shields.io/badge/GUI-PyQt6-orange?style=for-the-badge)
 ![LaTeX](https://img.shields.io/badge/LaTeX-native%20OMML-red?style=for-the-badge)
+[![Release](https://img.shields.io/github/v/release/dubr1k/MDtoWORD?style=for-the-badge)](https://github.com/dubr1k/MDtoWORD/releases/latest)
 
 **Настольное приложение, которое превращает GitHub Flavored Markdown в аккуратный документ Word — вместе с формулами, которые в Word можно редактировать**
 
@@ -561,9 +594,30 @@ MDtoWORD берёт ваши `.md`-файлы — один, десяток ил�
 
 Работает и в обратную сторону: из `.docx` получается Markdown с заголовками, списками, таблицами, ссылками, изображениями, сносками и формулами на своих местах — см. [Word → Markdown](#-word--markdown-1).
 
+**Новое в 1.2:** настоящая нумерация списков, сноски Word, пресет ГОСТ 7.32 и шаблоны, 146 из 147 типичных конструкций LaTeX — уравнениями, переписанное направление Word → Markdown и новые инструменты MCP — см. [заметки к выпуску](docs/releases/RELEASE_NOTES_1.2.md).
+
 ---
 
 ## 🚀 Быстрый старт
+
+### Готовые сборки
+
+Скачайте архив для своей системы из [последнего выпуска](https://github.com/dubr1k/MDtoWORD/releases/latest):
+
+| Система | Архив |
+|---|---|
+| macOS, Apple Silicon | `MDtoWORD-macOS-arm64.zip` — распакуйте и перенесите `MDtoWORD.app` в `/Applications` |
+| Windows x64 | `MDtoWORD-Windows-x64.zip` — распакуйте и запустите `MDtoWORD.exe` |
+
+К каждому архиву приложен файл `.sha256` для проверки (`shasum -a 256 -c MDtoWORD-macOS-arm64.zip.sha256` или `Get-FileHash` в Windows).
+
+Приложение для macOS подписано ad-hoc и не нотаризовано, поэтому при первом запуске macOS сообщит, что не может проверить разработчика. Откройте его один раз через правый клик → **Открыть** или снимите отметку карантина загрузки:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/MDtoWORD.app
+```
+
+### Из исходников
 
 ```bash
 # 1. Клонируйте репозиторий
@@ -674,7 +728,7 @@ python -m mdtoword
 
 ## 🧮 Формулы LaTeX
 
-Главная возможность этой версии. Формулу можно записать четырьмя способами:
+Формулу можно записать четырьмя способами:
 
 ```markdown
 Внутри строки: $E = mc^2$
@@ -845,6 +899,9 @@ MDtoWORD/
 │   ├── workflow.py               # Поиск исходников и раскладка результатов
 │   └── theme.py                  # Тёмная и светлая темы, сохранение выбора
 ├── 📁 tests/                     # Тесты (unittest)
+├── 📁 .github/workflows/
+│   ├── build-macos.yml           # CI: архив для macOS arm64, прикрепляется к выпуску
+│   └── build-windows.yml         # CI: архив для Windows x64, прикрепляется к выпуску
 ├── 📁 scripts/
 │   ├── build_macos.sh            # Сборка MDtoWORD.app (Apple Silicon)
 │   ├── build_windows.ps1         # Сборка бандла и архива для Windows
@@ -1028,8 +1085,15 @@ QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -p "test_*.py"
 
 Автономные сборки:
 
-- `./scripts/build_macos.sh` — собирает `dist/MDtoWORD.app` для Apple Silicon: создаёт отдельное окружение, ставит зависимости, запускает PyInstaller по `MDtoWORD.spec` и подписывает результат ad-hoc-подписью;
+- `./scripts/build_macos.sh` — собирает `dist/MDtoWORD.app` для Apple Silicon: создаёт отдельное окружение, ставит зависимости, запускает PyInstaller по `MDtoWORD.spec`, подписывает результат ad-hoc-подписью и упаковывает `dist/MDtoWORD-macOS-arm64.zip` с SHA-256;
 - `scripts/build_windows.ps1` — собирает бандл для Windows, упаковывает его в `dist/MDtoWORD-Windows-x64.zip` и считает SHA-256.
+
+Сборки для выпусков делает GitHub Actions, а не машина разработчика. Два workflow — `build-macos.yml` (раннер на Apple Silicon) и `build-windows.yml` — запускают эти скрипты, проверяют архив (для macOS ещё подпись, совпадение версии бандла с `pyproject.toml` и то, что приложение запускается) и выкладывают его как артефакт запуска. Запускаются вручную со вкладки Actions или при пуше любого тега; на теге они ещё и прикрепляют оба архива к выпуску GitHub с тем же именем.
+
+Как выпустить версию:
+
+1. Поднимите версию в `pyproject.toml`, `MDtoWORD.spec` (`CFBundleShortVersionString`, `CFBundleVersion`) и `packaging/windows_version_info.txt`; добавьте `docs/releases/RELEASE_NOTES_<версия>.md`.
+2. Поставьте тег на коммит, запушьте его и создайте для него выпуск: `gh release create <тег> --title "MDtoWORD <тег>" --notes-file docs/releases/RELEASE_NOTES_<версия>.md`. Через несколько минут workflow приложат архивы.
 
 ---
 
