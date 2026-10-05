@@ -87,6 +87,7 @@ _DEFINITION_INDENT = Cm(1)
 _GOST_FIRST_LINE = Cm(1.25)
 # (top, right, bottom, left) in millimetres.
 _GOST_MARGINS = (20.0, 15.0, 20.0, 30.0)
+_GOST_USER_MARGINS = (15.0, 15.0, 15.0, 30.0)
 _DEFAULT_MARGINS = (25.4, 25.4, 25.4, 25.4)
 
 _ALERT_MARKER = re.compile(r"^\[!(note|tip|important|warning|caution)\][ \t]*", re.IGNORECASE)

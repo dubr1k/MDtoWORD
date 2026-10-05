@@ -40,6 +40,7 @@ from .constants import (
     _DEFAULT_MARGINS,
     _GOST_FIRST_LINE,
     _GOST_MARGINS,
+    _GOST_USER_MARGINS,
     _HEADING_SCALE,
     _MAX_PROPERTY_LENGTH,
     _XML_INVALID,
@@ -80,13 +81,15 @@ class DocumentSetupMixin(RendererState):
         section = self.document.sections[0]
         if self.options.template is None:
             margins = _GOST_MARGINS if self._gost else _DEFAULT_MARGINS
+            if self.options.preset == "gost_user":
+                margins = _GOST_USER_MARGINS
             apply_page_setup(section, self.options.page_size or "A4", margins)
         elif self.options.page_size is not None:
             apply_page_setup(section, self.options.page_size)
         set_document_language(self.document, self._language)
         if self.options.template is None:
             self._configure_styles()
-            if self._gost:
+            if self.options.preset == "gost":
                 add_page_number_footer(section)
         self._ensure_custom_styles()
         self._compat_do_not_expand_shift_return()
@@ -121,6 +124,8 @@ class DocumentSetupMixin(RendererState):
         if self._gost:
             normal_format = normal.paragraph_format
             normal_format.line_spacing = 1.5
+            if self.options.preset == "gost_user":
+                normal_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             normal_format.first_line_indent = _GOST_FIRST_LINE
             normal_format.space_before = Pt(0)
             normal_format.space_after = Pt(0)

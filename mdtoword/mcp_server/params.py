@@ -8,7 +8,7 @@ from pydantic import Field
 
 # Допустимые значения дублируют кортежи из options.py: Literal нужен, чтобы
 # JSON-схема инструмента показывала enum. Расхождение ловит тест.
-Preset = Literal["default", "gost"]
+Preset = Literal["default", "gost", "gost_user"]
 PageSize = Literal["A4", "Letter"]
 LineBreaks = Literal["soft", "preserve"]
 FootnoteMode = Literal["native", "section"]
@@ -38,7 +38,7 @@ FontSize = Annotated[
     Field(
         gt=0,
         le=400,
-        description="Body font size in points; null uses the preset default (12 default, 14 gost)",
+        description="Body font size in points; null uses the preset default (12 default/gost_user, 14 gost)",
     ),
 ]
 FootnotesHeading = Annotated[
@@ -55,7 +55,7 @@ ImageRoot = Annotated[
 ]
 PresetParam = Annotated[
     Preset,
-    Field(description="'default' — neutral styling; 'gost' — GOST 7.32-2017 layout"),
+    Field(description="'default' — neutral styling; 'gost' — GOST 7.32-2017 layout; 'gost_user' — custom adaptation, 12 pt, 30/15/15/15 mm, no headers/footers"),
 ]
 PageSizeParam = Annotated[
     PageSize | None,

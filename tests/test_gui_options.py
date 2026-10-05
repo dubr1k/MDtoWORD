@@ -39,6 +39,24 @@ class GuiDocumentOptionsTests(unittest.TestCase):
             window.preset_combobox.setCurrentIndex(1)
             self.assertEqual(window.size_spinbox.value(), 16)
 
+    def test_user_gost_is_a_separate_choice_and_keeps_custom_size(self):
+        with tempfile.TemporaryDirectory() as directory:
+            window = self._window(directory)
+            index = window.preset_combobox.findData("gost_user")
+            self.assertGreaterEqual(index, 0)
+            window.preset_combobox.setCurrentIndex(1)
+            window.preset_combobox.setCurrentIndex(index)
+            self.assertEqual(window.converter.document_options.preset, "gost_user")
+            self.assertEqual(window.size_spinbox.value(), 12)
+            self.assertEqual(window.converter.document_options.footnotes, "native")
+            window.size_spinbox.setValue(16)
+            window.preset_combobox.setCurrentIndex(1)
+            window.preset_combobox.setCurrentIndex(index)
+            self.assertEqual(window.size_spinbox.value(), 16)
+            window._toggle_language()
+            self.assertTrue(window.preset_combobox.itemText(index))
+            self.assertEqual(window.converter.document_options.preset, "gost_user")
+
     def test_toc_checkbox_and_options_survive_a_mode_round_trip(self):
         with tempfile.TemporaryDirectory() as directory:
             window = self._window(directory)

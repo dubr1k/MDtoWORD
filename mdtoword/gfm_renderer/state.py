@@ -116,7 +116,8 @@ class RendererState:
 
     @property
     def _gost(self) -> bool:
-        return self.options.preset == "gost"
+        """Shared typography/captions; page layout and footer differ by preset."""
+        return self.options.preset in ("gost", "gost_user")
 
     @property
     def _russian(self) -> bool:

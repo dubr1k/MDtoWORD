@@ -156,5 +156,13 @@ Table: Materials
 - `preset="gost"`: GOST 7.32-2017 — A4, margins 30/15/20/20 mm
   (left/right/top/bottom), 1.5 spacing, 1.25 cm indent, 14 pt, centred page
   numbers, "Рисунок N — …" / "Таблица N — …" captions.
+- `preset="gost_user"`: custom adaptation, not full GOST 7.32 compliance —
+  A4, Times New Roman 12 pt black, margins 30/15/15/15 mm, 1.5 spacing,
+  justified body, no headers/footers. Explicit options override defaults;
+  templates retain their own styles/margins/headers for both presets.
+  Use `[^n]` with `footnotes="native"` (the default) for automatically
+  numbered page-bottom Word footnotes. Write bibliography entries in GOST
+  format yourself: the converter preserves text, not generates or validates
+  bibliography. Ordinary `[text](url)` links stay hyperlinks.
 - `template="/abs/path/reference.docx"`: reuse its styles, margins, headers.
 - `language="ru-RU"` (default `auto`), `page_size="Letter"`.

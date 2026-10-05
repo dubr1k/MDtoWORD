@@ -188,7 +188,7 @@ class SchemaTests(McpServerTestCase):
         for name in ("markdown_to_word", "preview_markdown"):
             properties = tools[name].inputSchema["properties"]
             with self.subTest(tool=name):
-                self.assertEqual(properties["preset"]["enum"], ["default", "gost"])
+                self.assertEqual(properties["preset"]["enum"], ["default", "gost", "gost_user"])
                 self.assertEqual(properties["line_breaks"]["enum"], ["soft", "preserve"])
                 self.assertEqual(properties["footnotes"]["enum"], ["native", "section"])
                 page_size_enums = [
@@ -506,6 +506,15 @@ class ConverterArgumentsTests(McpServerTestCase):
         )
 
         self.assertEqual(converter_class.call_args.kwargs["font_size"], Pt(14))
+
+    async def test_user_gost_is_supported_by_both_tools(self) -> None:
+        for tool in ("markdown_to_word", "preview_markdown"):
+            converter_class, _ = await self.converter_call(tool, {"preset": "gost_user"})
+            kwargs = converter_class.call_args.kwargs
+            self.assertEqual(kwargs["font_size"], Pt(12))
+            self.assertEqual(kwargs["document_options"], DocumentOptions(preset="gost_user"))
+            custom_class, _ = await self.converter_call(tool, {"preset": "gost_user", "font_size": 16})
+            self.assertEqual(custom_class.call_args.kwargs["font_size"], Pt(16))
 
     async def test_explicit_font_size_wins_over_the_preset(self) -> None:
         converter_class, _ = await self.converter_call(

@@ -90,6 +90,13 @@ async def markdown_to_word(
       A4, margins 30 mm left / 15 mm right / 20 mm top / 20 mm bottom, 1.5
       line spacing, 1.25 cm first-line indent, captions "Рисунок N — …" and
       "Таблица N — …", page numbers centred at the bottom, 14 pt by default.
+      "gost_user" is a custom adaptation (not full GOST 7.32 compliance):
+      A4, Times New Roman 12 pt black, margins 30/15/15/15 mm, 1.5 spacing,
+      justified body, no headers or footers; native footnotes by default.
+      Explicit font/page/footnote options win; a template keeps its own
+      styles, margins, headers and footers for either preset.
+      Supply GOST-formatted bibliography text yourself; no automatic
+      bibliography generation or validation is performed.
     - `font_size`: null means the preset default (12 pt, or 14 pt for gost).
     - `page_size`: "A4" or "Letter"; null means A4.
     - `language`: proofing/hyphenation language for Word, e.g. "ru-RU";

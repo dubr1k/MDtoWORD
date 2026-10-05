@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "[0-9]*"
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: Tests and release metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install into isolated environment
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -r requirements.txt -r requirements-mcp.txt
+      - name: Verify source and metadata
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          .venv/bin/python -m compileall -q mdtoword
+          .venv/bin/python -m unittest discover -s tests
+          .venv/bin/python scripts/verify_release.py --tag "$GITHUB_REF_NAME"
+  macos:
+    uses: ./.github/workflows/build-macos.yml
+  windows:
+    uses: ./.github/workflows/build-windows.yml
+  publish:
+    name: Publish both verified platforms
+    needs: [verify, macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: MDtoWORD-*
+          path: release-assets
+          merge-multiple: true
+      - name: Verify release archives and checksums
+        run: python scripts/verify_release.py --tag "$GITHUB_REF_NAME" --assets release-assets
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release-assets/* \
+            --verify-tag --title "MDtoWORD $GITHUB_REF_NAME" \
+            --notes-file "docs/releases/RELEASE_NOTES_$GITHUB_REF_NAME.md"

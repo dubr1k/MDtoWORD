@@ -147,6 +147,10 @@ class PyprojectTests(unittest.TestCase):
         self.assertEqual(_pins(extras["mcp"]), mcp_only)
         self.assertEqual(_pins(extras["gui"]), gui_only)
 
+    def test_release_metadata_and_notes_match_the_package_version(self) -> None:
+        from scripts.verify_release import verify_metadata
+        self.assertEqual(verify_metadata(self.project["version"]), self.project["version"])
+
     def test_agent_guide_ships_as_package_data(self) -> None:
         self.assertIn("agent_guide.md", self.setuptools["package-data"]["mdtoword"])
         self.assertTrue((_REPO_ROOT / "mdtoword" / "agent_guide.md").is_file())

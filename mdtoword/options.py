@@ -12,14 +12,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-PRESETS = ("default", "gost")
+PRESETS = ("default", "gost", "gost_user")
 PAGE_SIZES = ("A4", "Letter")
 LINE_BREAK_MODES = ("soft", "preserve")
 FOOTNOTE_MODES = ("native", "section")
 
 # Кегль по умолчанию для каждого пресета: ГОСТ 7.32-2017 требует не меньше
 # 12 pt, а на практике кафедры и журналы ждут 14 pt Times New Roman.
-PRESET_FONT_SIZE = {"default": 12.0, "gost": 14.0}
+PRESET_FONT_SIZE = {"default": 12.0, "gost": 14.0, "gost_user": 12.0}
 
 
 @dataclass(frozen=True)
@@ -31,6 +31,10 @@ class DocumentOptions:
         поля 30/15/20/20 мм, полуторный интервал, абзацный отступ 1,25 см,
         подписи «Рисунок N — …» и «Таблица N — …», номер страницы внизу по
         центру.
+        ``"gost_user"`` — пользовательская адаптация: A4, 12 pt, поля
+        30/15/15/15 мм, интервал 1,5, по ширине, без колонтитулов.
+        Это не заявление о полном соответствии ГОСТ 7.32. Явный шаблон
+        сохраняет приоритет над оформлением пресета.
     ``page_size``
         ``"A4"`` или ``"Letter"``; ``None`` — A4.
     ``language``

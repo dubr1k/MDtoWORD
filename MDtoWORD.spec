@@ -55,8 +55,8 @@ app = BUNDLE(
     info_plist={
         "CFBundleDisplayName": "MDtoWORD",
         "CFBundleName": "MDtoWORD",
-        "CFBundleShortVersionString": "1.2.0",
-        "CFBundleVersion": "3",
+        "CFBundleShortVersionString": "1.3.0",
+        "CFBundleVersion": "4",
         "LSApplicationCategoryType": "public.app-category.productivity",
         "LSMinimumSystemVersion": "12.0",
         "NSHighResolutionCapable": True,

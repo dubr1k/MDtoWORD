@@ -26,6 +26,8 @@ MDtoWORD takes your `.md` files — one, a dozen, or a whole folder — and drop
 
 It also works the other way round: a `.docx` turns back into Markdown with headings, lists, tables, links, images, footnotes and equations in place — see [Word → Markdown](#-word--markdown).
 
+**New in 1.3:** a separate custom 12 pt GOST adaptation in GUI, MCP and Python API, without changing `gost` — see the [release notes](docs/releases/RELEASE_NOTES_1.3.0.md).
+
 **New in 1.2:** real list numbering, native footnotes, GOST 7.32 preset and templates, 146 of 147 common LaTeX constructs as equations, a rewritten Word → Markdown direction and new MCP tools — see the [release notes](docs/releases/RELEASE_NOTES_1.2.md).
 
 ---
@@ -115,7 +117,7 @@ For Fish, make sure `conda init fish` has been run (conda on PATH).
 
 **The "Text" tab.** In Markdown → Word mode there is a "Text" tab next to "Files": paste markup straight from the clipboard, press Convert, and choose where to save the `.docx`. No file needed.
 
-**Appearance.** A font dropdown (Arial, Times New Roman, Calibri, Georgia, Helvetica, Courier New) and a size field from 6 to 72 pt set the document's base formatting. **Style** switches between *Standard* and *GOST 7.32* — A4, margins 30/15/20/20 mm, 1.5 line spacing, a 1.25 cm first-line indent and 14 pt (the size follows the style unless you changed it yourself). **Table of contents** puts a TOC at the top of the document.
+**Appearance.** A font dropdown (Arial, Times New Roman, Calibri, Georgia, Helvetica, Courier New) and a size field from 6 to 72 pt set the document's base formatting. **Style** offers *Standard*, *GOST 7.32* and *GOST — custom (12 pt)* (see [formatting](#-how-the-word-document-is-formatted)). GOST 7.32 uses A4, margins 30/15/20/20 mm, 1.5 line spacing, a 1.25 cm first-line indent and 14 pt (the size follows the style unless you changed it yourself). **Table of contents** puts a TOC at the top of the document.
 
 **Themes and language.** The footer holds a round theme button (☀ / ☾) that switches between dark and light. The choice is stored via `QSettings` and restored on the next launch. The neighbouring **EN / RU** button switches the interface language.
 
@@ -277,6 +279,26 @@ ordinary prose rather than a formula; write a literal "$" as "\$".
 
 **GOST 7.32 preset.** A4; margins 30 mm left, 15 mm right, 20 mm top and bottom; 14 pt by default (a size you set yourself wins); 1.5 line spacing; a 1.25 cm first-line indent; headings bold at the body size; "Рисунок N — …" under figures and "Таблица N — …" above tables; the page number centred in the footer; "СОДЕРЖАНИЕ" as the title of the table of contents.
 
+**Custom GOST adaptation.** Select **GOST — custom (12 pt)** in the GUI or `preset="gost_user"` in MCP `markdown_to_word` / `preview_markdown`. This is a user adaptation, **not full GOST 7.32 compliance**: A4, black Times New Roman 12 pt, margins left/right/top/bottom 30/15/15/15 mm, 1.5 spacing, justified body, no headers or footers. It shares GOST headings, captions and 1.25 cm first-line indent. Explicit font/size/page/footnote options win. An explicit template retains its own styles, margins and headers/footers, so it may differ from the preset. `default` and `gost` remain unchanged.
+
+**Source references.** Write sources as Markdown `[^n]` notes; `footnotes="native"` (default) makes automatically numbered page-bottom Word footnotes. Put GOST-formatted bibliographic entries in the note bodies yourself: MDtoWORD preserves them but does not generate or validate bibliography entries. Ordinary `[text](url)` links remain hyperlinks; explicitly choosing `footnotes="section"` still collects notes at the end.
+
+**Python API (both variants).** The existing converter accepts explicit font/size and `DocumentOptions`; select the corresponding preset size explicitly (its historical constructor default remains 12 pt):
+
+```python
+from docx.shared import Pt
+from mdtoword.converters import MarkdownToWordConverter
+from mdtoword.options import DocumentOptions, PRESET_FONT_SIZE
+
+preset = "gost_user"  # or "gost" (14 pt)
+converter = MarkdownToWordConverter(
+    font_name="Times New Roman",
+    font_size=Pt(PRESET_FONT_SIZE[preset]),
+    document_options=DocumentOptions(preset=preset, footnotes="native"),
+)
+converter.convert_file("report.md", "report.docx")
+```
+
 **Templates.** Through the MCP server (`template=`) a `.docx` can supply the styles, margins, headers and footers — like pandoc's `--reference-doc`. Its body text is not copied, and runs carry no direct font or size, so the template's styles decide.
 
 ---
@@ -332,6 +354,7 @@ MDtoWORD/
 │   └── theme.py                  # Dark and light themes, persisted choice
 ├── 📁 tests/                     # Test suite (unittest)
 ├── 📁 .github/workflows/
+│   ├── release.yml               # Gated two-platform publication
 │   ├── build-macos.yml           # CI: macOS arm64 archive, attached to the release
 │   └── build-windows.yml         # CI: Windows x64 archive, attached to the release
 ├── 📁 scripts/
@@ -435,7 +458,7 @@ All converting tools take paths, never file contents, and accept files and direc
 | `output_dir: str \| None` | `None` | Where outputs go. `None` writes each output next to its source file. |
 | `font_name: str` | `"Times New Roman"` | Body font of the produced document. |
 | `font_size: float \| None` | `None` | Body size in points; headings scale from it. `None` means 12, or 14 with `preset="gost"`. |
-| `preset` | `"default"` | `"gost"` lays the document out by GOST 7.32 (see [formatting](#-how-the-word-document-is-formatted)). |
+| `preset` | `"default"` | `"gost"` selects GOST 7.32; `"gost_user"` selects the custom 12 pt adaptation without headers/footers (see [formatting](#-how-the-word-document-is-formatted)). |
 | `page_size` | `None` | `"A4"` or `"Letter"`; `None` is A4 (or the template's size). |
 | `language: str` | `"auto"` | Document language for spelling and hyphenation, e.g. `"ru-RU"`; `auto` detects it from the text or the front matter. |
 | `line_breaks` | `"soft"` | `"soft"`: a single newline inside a paragraph is a space (CommonMark). `"preserve"`: it is a line break. |
@@ -520,12 +543,13 @@ Standalone bundles:
 - `./scripts/build_macos.sh` — builds `dist/MDtoWORD.app` for Apple Silicon: creates a dedicated virtualenv, installs the dependencies, runs PyInstaller against `MDtoWORD.spec`, ad-hoc signs the result and packs `dist/MDtoWORD-macOS-arm64.zip` with its SHA-256;
 - `scripts/build_windows.ps1` — builds the Windows bundle, packs it into `dist/MDtoWORD-Windows-x64.zip` and computes the SHA-256.
 
-Release builds come from GitHub Actions, not from a developer machine. Two workflows — `build-macos.yml` (Apple Silicon runner) and `build-windows.yml` — run the scripts above, check the archive (the macOS one also verifies the signature, that the bundle version matches `pyproject.toml`, and that the app starts) and upload it as a run artifact. They start by hand from the Actions tab or on any tag push; on a tag they also attach both archives to the GitHub release with that name.
+Release builds come from GitHub Actions. `release.yml` starts on a numeric version tag and calls `build-macos.yml` and `build-windows.yml` (also manually runnable). Tests and release metadata checks run alongside both builds. Only after every required job succeeds does the publish job download both platforms, recursively verify ZIP integrity, checksums, executables, runtimes and icons, and create a complete non-draft release. The macOS builder also checks its ad-hoc signature, version and startup.
 
 Releasing a version:
 
 1. Bump the version in `pyproject.toml`, `MDtoWORD.spec` (`CFBundleShortVersionString`, `CFBundleVersion`) and `packaging/windows_version_info.txt`; add `docs/releases/RELEASE_NOTES_<version>.md`.
-2. Tag the commit and push the tag, then create the release for it: `gh release create <tag> --title "MDtoWORD <tag>" --notes-file docs/releases/RELEASE_NOTES_<version>.md`. The workflows attach the archives a few minutes later.
+2. Run the full tests and `python scripts/verify_release.py --tag <version>`, commit and push, then push an immutable tag exactly equal to the version (e.g. `1.3.0`). Do not pre-create the release: Actions publishes it after both builds pass.
+3. Require every job in the Release run to succeed; inspect the published non-draft release, download all four assets and run `python scripts/verify_release.py --tag <version> --assets <download-directory>` against the public ZIPs/checksums.
 
 ---
 
@@ -593,6 +617,8 @@ Text boxes, comments and merged table cells have no Markdown counterpart; the re
 MDtoWORD берёт ваши `.md`-файлы — один, десяток или целую папку — и складывает рядом готовые `.docx`. Разметка не «приблизительно похожа», а переносится по-настоящему: заголовки становятся стилями Word с закладками, на которые можно ссылаться, списки получают настоящую нумерацию Word, сноски — настоящие сноски внизу страницы, таблицы сохраняют форматирование, а формула вроде `$E = mc^2$` превращается в **родное редактируемое уравнение Word**, а не в картинку и не в голый текст. Пресет ГОСТ 7.32 оформляет документ так, как ждут отчёты и диссертации.
 
 Работает и в обратную сторону: из `.docx` получается Markdown с заголовками, списками, таблицами, ссылками, изображениями, сносками и формулами на своих местах — см. [Word → Markdown](#-word--markdown-1).
+
+**Новое в 1.3:** отдельная пользовательская адаптация ГОСТ на 12 pt в GUI, MCP и Python API без изменения `gost` — см. [заметки к выпуску](docs/releases/RELEASE_NOTES_1.3.0.md).
 
 **Новое в 1.2:** настоящая нумерация списков, сноски Word, пресет ГОСТ 7.32 и шаблоны, 146 из 147 типичных конструкций LaTeX — уравнениями, переписанное направление Word → Markdown и новые инструменты MCP — см. [заметки к выпуску](docs/releases/RELEASE_NOTES_1.2.md).
 
@@ -683,7 +709,7 @@ python -m mdtoword
 
 **Вкладка «Текст».** В режиме Markdown → Word рядом с вкладкой «Файлы» есть вкладка «Текст»: вставьте туда разметку прямо из буфера обмена, нажмите «Конвертировать» и укажите, куда сохранить `.docx`. Файл при этом не нужен.
 
-**Оформление.** Выпадающий список шрифтов (Arial, Times New Roman, Calibri, Georgia, Helvetica, Courier New) и поле размера от 6 до 72 pt задают базовое оформление документа. **Стиль** переключает *Обычный* и *ГОСТ 7.32* — A4, поля 30/15/20/20 мм, полуторный интервал, абзацный отступ 1,25 см и 14 pt (размер следует за стилем, если вы не меняли его сами). Флажок **«Оглавление»** вставляет оглавление в начало документа.
+**Оформление.** Выпадающий список шрифтов (Arial, Times New Roman, Calibri, Georgia, Helvetica, Courier New) и поле размера от 6 до 72 pt задают базовое оформление документа. **Стиль** предлагает *Обычный*, *ГОСТ 7.32* и *ГОСТ — пользовательский (12 pt)* (см. [оформление](#-как-оформляется-документ-word)). ГОСТ 7.32 задаёт A4, поля 30/15/20/20 мм, полуторный интервал, абзацный отступ 1,25 см и 14 pt (размер следует за стилем, если вы не меняли его сами). Флажок **«Оглавление»** вставляет оглавление в начало документа.
 
 **Темы и язык.** В нижней строке — круглая кнопка темы (☀ / ☾), переключающая тёмное и светлое оформление. Выбор запоминается через `QSettings` и восстанавливается при следующем запуске. Соседняя кнопка **EN / RU** переключает язык интерфейса.
 
@@ -845,6 +871,12 @@ ordinary prose rather than a formula; write a literal "$" as "\$".
 
 **Пресет ГОСТ 7.32.** A4; поля: левое 30 мм, правое 15 мм, верхнее и нижнее 20 мм; 14 pt по умолчанию (размер, заданный вами, важнее); полуторный интервал; абзацный отступ 1,25 см; заголовки жирные, размером с основной текст; «Рисунок N — …» под рисунками и «Таблица N — …» над таблицами; номер страницы по центру внизу; «СОДЕРЖАНИЕ» — заголовок оглавления.
 
+**Пользовательская адаптация ГОСТ.** Выберите **«ГОСТ — пользовательский (12 pt)»** в GUI или `preset="gost_user"` в MCP `markdown_to_word` / `preview_markdown`. Это пользовательская адаптация, **не заявление о полном соответствии ГОСТ 7.32**: A4, чёрный Times New Roman 12 pt, поля слева/справа/сверху/снизу 30/15/15/15 мм, полуторный интервал, основной текст по ширине, без колонтитулов. Сохраняются ГОСТ-заголовки, подписи и отступ первой строки 1,25 см. Явные параметры шрифта, размера, страницы и сносок важнее пресета. Явный шаблон сохраняет свои стили, поля и колонтитулы, поэтому может отличаться от пресета. `default` и `gost` не изменены.
+
+**Ссылки на источники.** Записывайте источники как Markdown-сноски `[^n]`; `footnotes="native"` (по умолчанию) создаёт настоящие сноски Word внизу страницы с автоматической нумерацией. Библиографические записи по ГОСТ подготовьте в тексте сносок сами: MDtoWORD сохраняет их, но не генерирует и не проверяет библиографию. Обычные `[текст](url)` остаются гиперссылками; явно заданный `footnotes="section"` по-прежнему собирает примечания в конце.
+
+**Python API.** Используйте `MarkdownToWordConverter` с `DocumentOptions(preset="gost_user")` и `font_size=Pt(PRESET_FONT_SIZE["gost_user"])`; для стандартного ГОСТ замените ключ на `"gost"` (14 pt). [Полный пример](#-how-the-word-document-is-formatted) выше. Исторический размер конструктора 12 pt сохранён; явный размер важнее пресета.
+
 **Шаблоны.** Через MCP-сервер (`template=`) `.docx` может задать стили, поля и колонтитулы — как `--reference-doc` у pandoc. Его текст не копируется, а прогоны не несут прямого шрифта и размера, так что решают стили шаблона.
 
 ---
@@ -900,6 +932,7 @@ MDtoWORD/
 │   └── theme.py                  # Тёмная и светлая темы, сохранение выбора
 ├── 📁 tests/                     # Тесты (unittest)
 ├── 📁 .github/workflows/
+│   ├── release.yml               # Gated two-platform publication
 │   ├── build-macos.yml           # CI: архив для macOS arm64, прикрепляется к выпуску
 │   └── build-windows.yml         # CI: архив для Windows x64, прикрепляется к выпуску
 ├── 📁 scripts/
@@ -1003,7 +1036,7 @@ claude mcp add mdtoword --scope user -- /path/to/venv/bin/mdtoword-mcp
 | `output_dir: str \| None` | `None` | Куда писать результат. `None` — рядом с каждым исходным файлом. |
 | `font_name: str` | `"Times New Roman"` | Шрифт основного текста. |
 | `font_size: float \| None` | `None` | Размер основного текста в пунктах; заголовки масштабируются от него. `None` — 12, а с `preset="gost"` — 14. |
-| `preset` | `"default"` | `"gost"` — оформление по ГОСТ 7.32 (см. [оформление](#-как-оформляется-документ-word)). |
+| `preset` | `"default"` | `"gost"` — ГОСТ 7.32; `"gost_user"` — пользовательская адаптация 12 pt без колонтитулов (см. [оформление](#-как-оформляется-документ-word)). |
 | `page_size` | `None` | `"A4"` или `"Letter"`; `None` — A4 (или размер шаблона). |
 | `language: str` | `"auto"` | Язык документа для орфографии и переносов, например `"ru-RU"`; `auto` определяет его по тексту или front matter. |
 | `line_breaks` | `"soft"` | `"soft"`: одиночный перенос строки внутри абзаца — пробел (CommonMark). `"preserve"`: разрыв строки. |
@@ -1088,12 +1121,13 @@ QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -p "test_*.py"
 - `./scripts/build_macos.sh` — собирает `dist/MDtoWORD.app` для Apple Silicon: создаёт отдельное окружение, ставит зависимости, запускает PyInstaller по `MDtoWORD.spec`, подписывает результат ad-hoc-подписью и упаковывает `dist/MDtoWORD-macOS-arm64.zip` с SHA-256;
 - `scripts/build_windows.ps1` — собирает бандл для Windows, упаковывает его в `dist/MDtoWORD-Windows-x64.zip` и считает SHA-256.
 
-Сборки для выпусков делает GitHub Actions, а не машина разработчика. Два workflow — `build-macos.yml` (раннер на Apple Silicon) и `build-windows.yml` — запускают эти скрипты, проверяют архив (для macOS ещё подпись, совпадение версии бандла с `pyproject.toml` и то, что приложение запускается) и выкладывают его как артефакт запуска. Запускаются вручную со вкладки Actions или при пуше любого тега; на теге они ещё и прикрепляют оба архива к выпуску GitHub с тем же именем.
+Сборки для выпусков делает GitHub Actions. `release.yml` запускается по числовому тегу версии и вызывает `build-macos.yml` и `build-windows.yml` (их также можно запускать вручную). Параллельно выполняются тесты и проверки метаданных. Только после успеха всех обязательных jobs публикация скачивает обе платформы, рекурсивно проверяет целостность ZIP, SHA-256, исполняемые файлы, runtime и иконки и создаёт полный выпуск без статуса draft. Сборка macOS также проверяет ad-hoc-подпись, версию и запуск приложения.
 
 Как выпустить версию:
 
 1. Поднимите версию в `pyproject.toml`, `MDtoWORD.spec` (`CFBundleShortVersionString`, `CFBundleVersion`) и `packaging/windows_version_info.txt`; добавьте `docs/releases/RELEASE_NOTES_<версия>.md`.
-2. Поставьте тег на коммит, запушьте его и создайте для него выпуск: `gh release create <тег> --title "MDtoWORD <тег>" --notes-file docs/releases/RELEASE_NOTES_<версия>.md`. Через несколько минут workflow приложат архивы.
+2. Выполните полный прогон тестов и `python scripts/verify_release.py --tag <версия>`, закоммитьте, запушьте изменения и неизменяемый тег, точно равный версии (например, `1.3.0`). Не создавайте выпуск заранее: Actions опубликует его после обеих сборок.
+3. Дождитесь успеха всех jobs Release; проверьте опубликованный non-draft выпуск, скачайте все четыре assets и выполните `python scripts/verify_release.py --tag <версия> --assets <папка-скачивания>` на опубликованных ZIP и SHA-256.
 
 ---
 
