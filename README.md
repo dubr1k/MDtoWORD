@@ -26,7 +26,7 @@ MDtoWORD takes your `.md` files — one, a dozen, or a whole folder — and drop
 
 It also works the other way round: a `.docx` turns back into Markdown with headings, lists, tables, links, images, footnotes and equations in place — see [Word → Markdown](#-word--markdown).
 
-**New in 1.3:** a separate custom 12 pt GOST adaptation in GUI, MCP and Python API, without changing `gost` — see the [release notes](docs/releases/RELEASE_NOTES_1.3.0.md).
+**New in 1.3:** a separate custom 12 pt GOST adaptation in GUI, MCP and Python API, without changing `gost` — see the [release notes](docs/releases/RELEASE_NOTES_1.3.1.md).
 
 **New in 1.2:** real list numbering, native footnotes, GOST 7.32 preset and templates, 146 of 147 common LaTeX constructs as equations, a rewritten Word → Markdown direction and new MCP tools — see the [release notes](docs/releases/RELEASE_NOTES_1.2.md).
 
@@ -548,7 +548,7 @@ Release builds come from GitHub Actions. `release.yml` starts on a numeric versi
 Releasing a version:
 
 1. Bump the version in `pyproject.toml`, `MDtoWORD.spec` (`CFBundleShortVersionString`, `CFBundleVersion`) and `packaging/windows_version_info.txt`; add `docs/releases/RELEASE_NOTES_<version>.md`.
-2. Run the full tests and `python scripts/verify_release.py --tag <version>`, commit and push, then push an immutable tag exactly equal to the version (e.g. `1.3.0`). Do not pre-create the release: Actions publishes it after both builds pass.
+2. Run the full tests and `python scripts/verify_release.py --tag <version>`, commit and push, then push an immutable tag exactly equal to the version (e.g. `1.3.1`). Do not pre-create the release: Actions publishes it after both builds pass.
 3. Require every job in the Release run to succeed; inspect the published non-draft release, download all four assets and run `python scripts/verify_release.py --tag <version> --assets <download-directory>` against the public ZIPs/checksums.
 
 ---
@@ -618,7 +618,7 @@ MDtoWORD берёт ваши `.md`-файлы — один, десяток ил�
 
 Работает и в обратную сторону: из `.docx` получается Markdown с заголовками, списками, таблицами, ссылками, изображениями, сносками и формулами на своих местах — см. [Word → Markdown](#-word--markdown-1).
 
-**Новое в 1.3:** отдельная пользовательская адаптация ГОСТ на 12 pt в GUI, MCP и Python API без изменения `gost` — см. [заметки к выпуску](docs/releases/RELEASE_NOTES_1.3.0.md).
+**Новое в 1.3:** отдельная пользовательская адаптация ГОСТ на 12 pt в GUI, MCP и Python API без изменения `gost` — см. [заметки к выпуску](docs/releases/RELEASE_NOTES_1.3.1.md).
 
 **Новое в 1.2:** настоящая нумерация списков, сноски Word, пресет ГОСТ 7.32 и шаблоны, 146 из 147 типичных конструкций LaTeX — уравнениями, переписанное направление Word → Markdown и новые инструменты MCP — см. [заметки к выпуску](docs/releases/RELEASE_NOTES_1.2.md).
 
@@ -1126,7 +1126,7 @@ QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -p "test_*.py"
 Как выпустить версию:
 
 1. Поднимите версию в `pyproject.toml`, `MDtoWORD.spec` (`CFBundleShortVersionString`, `CFBundleVersion`) и `packaging/windows_version_info.txt`; добавьте `docs/releases/RELEASE_NOTES_<версия>.md`.
-2. Выполните полный прогон тестов и `python scripts/verify_release.py --tag <версия>`, закоммитьте, запушьте изменения и неизменяемый тег, точно равный версии (например, `1.3.0`). Не создавайте выпуск заранее: Actions опубликует его после обеих сборок.
+2. Выполните полный прогон тестов и `python scripts/verify_release.py --tag <версия>`, закоммитьте, запушьте изменения и неизменяемый тег, точно равный версии (например, `1.3.1`). Не создавайте выпуск заранее: Actions опубликует его после обеих сборок.
 3. Дождитесь успеха всех jobs Release; проверьте опубликованный non-draft выпуск, скачайте все четыре assets и выполните `python scripts/verify_release.py --tag <версия> --assets <папка-скачивания>` на опубликованных ZIP и SHA-256.
 
 ---

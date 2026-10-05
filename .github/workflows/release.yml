@@ -17,6 +17,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      - name: Install Qt system runtime for headless GUI tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libegl1 libgl1 libxkbcommon0
       - name: Install into isolated environment
         run: |
           python -m venv .venv
